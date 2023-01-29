@@ -2,7 +2,7 @@ import numpy as np
 from queue import Queue
 from game import BoardState, GameSimulator, Rules, plotstate
 
-VALIDATE = False
+VALIDATE = True
 
 def view_solution(steps):
     for (state, action) in steps:

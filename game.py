@@ -150,15 +150,11 @@ class BoardState:
 
 PotentialMove = namedtuple('PotentialMove', ['norm', 'player', 'y'])
 
-def lub(a: PotentialMove, b: PotentialMove, hometeam):
+def lub(a: PotentialMove, b: PotentialMove):
     if a.norm < b.norm:
         return a
     if a.norm == b.norm:
-        assert False
-        if a.player == hometeam:
-            return b
-        if b.player == hometeam:
-            return a
+        raise ValueError("Two pieces at the same position")
     return b
 
 class Rules:
@@ -241,15 +237,13 @@ class Rules:
         for (y, n, p, u) in zip(ys[valid], norms[valid], players, units):
             newmove = PotentialMove(n, p, y)
             if u in moves:
-                moves[u] = lub(moves[u], newmove, player_ix)
+                moves[u] = lub(moves[u], newmove)
             else:
                 moves[u] = newmove
 
-        def yielder():
-            for (k,v) in moves.items():
-                if v.player == player_ix and v.y not in passes:
-                    yield v.y
-        return list(yielder())
+        for (k,v) in moves.items():
+            if v.player == player_ix and v.y not in passes:
+                yield v.y
 
 class GameSimulator:
     """
