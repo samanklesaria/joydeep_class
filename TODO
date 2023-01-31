@@ -1,1 +1,3 @@
+- Have better error messages for invalid moves
+- Add some invalid actions for 'test_valid_action' to test
 - Use hamming distance as A* hueristic
