@@ -2,8 +2,8 @@ import numpy as np
 import queue
 import pytest
 import game
-from game import BoardState, GameSimulator, Rules, plotstate
-from search import GameStateProblem, view_solution
+from game import BoardState, GameSimulator, Rules
+from search import GameStateProblem
 
 class TestSearch:
 

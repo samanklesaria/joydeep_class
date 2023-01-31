@@ -1,43 +1,32 @@
 import numpy as np
 from collections import namedtuple
-import matplotlib.pyplot as plt
+from typing import Set, Union, Iterable, Dict
 
-def printstate(locs):
-    itr = iter(locs)
-    print("White Blocks")
-    for a in range(5):
-        print(next(itr))
-    print("While ball", next(itr))
-    print("Black Blocks")
-    for a in range(5):
-        print(next(itr))
-    print("Black ball", next(itr))
+# Representation of the state using coordinates
+CoordState = np.ndarray
 
+# Coordinates in the game, as a tuple
+TupPos = tuple[int,int]
 
-x_ticks = np.arange(0, 7)
-y_ticks = np.arange(0, 8)
+# Coordinates in the game, as an ndarray
+NdPos = np.ndarray
 
-def plotstate(locs):
-    itr = iter(locs)
-    for a in range(5):
-        x,y = next(itr)
-        plt.scatter([x], [y], c='r', s=100)
-    x,y = next(itr)
-    plt.scatter([x], [y], c='r', marker='s', s=100)
-    for a in range(5):
-        x,y = next(itr)
-        plt.scatter([x], [y], c='b', s=100)
-    x,y = next(itr)
-    plt.scatter([x], [y], c='b', marker='s', s=100)
-    ax = plt.gca()
-    ax.set_xticks(x_ticks)
-    ax.set_yticks(y_ticks)
-    plt.axis('equal')
-    plt.grid(which='both')
-    plt.show()
+Pos = Union[TupPos, NdPos]
 
-def block_actions(st, ix):
-    return [st.decode_single_pos(y) for y in Rules.single_piece_actions(st, ix)]
+# Encoded position
+EncPos = int
+
+# Which player is playing?
+PlayerIx = int # in [0,1]
+
+# Represents a piece modulo PlayerIx
+RelativePieceIx = int # in [0,5]
+
+# Represents a piece
+PieceIx = int # in [0, 11]
+
+# A move in the game
+Action = tuple[RelativePieceIx, EncPos]
 
 class BoardState:
     """
@@ -62,10 +51,9 @@ class BoardState:
         self.b = [5,11] # player ball ixs
         self.block_locs = np.concatenate([self.locs1, self.locs2])
 
-        self.stated = np.stack([np.array(self.decode_single_pos(d)) for d in self.state])
+        self.stated: CoordState = np.stack([np.array(self.decode_single_pos(d)) for d in self.state])
 
-    # Numpy is easier to work with than arrays of tuples.
-    # But the tests target the stupid interface. This translates.
+    # Maintains Eric's silly list of tuples interface for backwards compat
     @property
     def decode_state(self):
         return [self.decode_single_pos(d) for d in self.state]
@@ -74,7 +62,7 @@ class BoardState:
     def decode_state(self, value):
         self.stated = np.stack([np.array(a) for a in value])
 
-    def update(self, idx, val):
+    def update(self, idx: PieceIx, val: EncPos):
         """
         Updates both the encoded and decoded states
         """
@@ -88,7 +76,7 @@ class BoardState:
         """
         return [self.decode_single_pos(d) for d in self.state]
 
-    def encode_single_pos(self, cr: tuple):
+    def encode_single_pos(self, cr: Pos) -> EncPos:
         """
         Encodes a single coordinate (col, row) -> Z
 
@@ -97,7 +85,7 @@ class BoardState:
         """
         return cr[0] + cr[1] * self.N_COLS 
 
-    def decode_single_pos(self, n: int):
+    def decode_single_pos(self, n: EncPos) -> TupPos:
         """
         Decodes a single integer into a coordinate on the board: Z -> (col, row)
 
@@ -106,7 +94,7 @@ class BoardState:
         """
         return (n % self.N_COLS, n // self.N_COLS)
 
-    def is_termination_state(self):
+    def is_termination_state(self) -> bool:
         """
         Checks if the current state is a termination state. Termination occurs when
         one of the player's move their ball to the opposite side of the board.
@@ -116,7 +104,7 @@ class BoardState:
         r1 = self.stated[self.b[1]][1]
         return r0 == (self.N_ROWS - 1) or r1 == 0 
 
-    def is_valid(self):
+    def is_valid(self) -> bool:
         """
         Checks if a board configuration is valid. This function checks whether the current
         value self.state represents a valid board configuration or not. This encodes and checks
@@ -148,9 +136,11 @@ class BoardState:
     def occupied(self, y):
         return (self.state == y).any()
 
+# Wraps a potential move with its associated min semilattice element
 PotentialMove = namedtuple('PotentialMove', ['norm', 'player', 'y'])
 
-def lub(a: PotentialMove, b: PotentialMove):
+# Least upper bound in min norm semilattice
+def lub(a: PotentialMove, b: PotentialMove) -> PotentialMove:
     if a.norm < b.norm:
         return a
     if a.norm == b.norm:
@@ -160,7 +150,7 @@ def lub(a: PotentialMove, b: PotentialMove):
 class Rules:
 
     @staticmethod
-    def single_piece_actions(st, piece_ix):
+    def single_piece_actions(st: BoardState, piece_ix: PieceIx) -> Iterable[EncPos]:
         """
         Returns the set of possible actions for the given piece, assumed to be a valid piece located
         at piece_idx in the board_state.state.
@@ -186,7 +176,7 @@ class Rules:
                                 yield y
 
     @staticmethod
-    def single_ball_actions(st, player_ix):
+    def single_ball_actions(st: BoardState, player_ix: PlayerIx) -> Iterable[EncPos]:
         """
         Returns the set of possible actions for moving the specified ball, assumed to be the
         valid ball for player_idx  in the board_state
@@ -201,11 +191,11 @@ class Rules:
         return Rules.ball_actions_from(st, st.state[st.b[player_ix]], player_ix)
 
     @staticmethod
-    def ball_actions_from(st, y, player_ix):
+    def ball_actions_from(st: BoardState, y: EncPos, player_ix: PlayerIx) -> Set[EncPos]:
         # Look where we can pass ball. Then from there, look for any new places we can pass. And so on. 
         passes = set([y])
 
-        def recurse(x: np.ndarray):
+        def recurse(x: NdPos):
             for y in Rules.pass_actions(st, player_ix, x, passes):
                 passes.add(y)
                 recurse(np.array(st.decode_single_pos(y)))
@@ -215,7 +205,7 @@ class Rules:
         return passes
         
     @staticmethod
-    def pass_actions(st, player_ix, x, passes): 
+    def pass_actions(st: BoardState, player_ix: PlayerIx, x: NdPos, passes: Set[EncPos]): 
         # For each person, get their vector to the ball.
         # Map each (vector, team) to its unit length version. Reverse the mapping, using lub defined above.
         # Then yield all the remaining vectors for the current team.
@@ -233,7 +223,7 @@ class Rules:
         players = np.floor_divide(st.block_locs[valid], 6)
         units = (tuple(u) for u in
             np.floor_divide(vecs[valid], norms[valid,None]))
-        moves = dict()
+        moves : Dict[tuple, PotentialMove] = dict()
         for (y, n, p, u) in zip(ys[valid], norms[valid], players, units):
             newmove = PotentialMove(n, p, y)
             if u in moves:
@@ -284,7 +274,7 @@ class GameSimulator:
         else:
             return self.current_round, "BLACK", "No issues"
 
-    def generate_valid_actions(self, player_ix: int):
+    def generate_valid_actions(self, player_ix: PlayerIx) -> Iterable[Action]:
         """
         Given a valid state, and a player's turn, generate the set of possible actions that player can take
 
@@ -302,16 +292,14 @@ class GameSimulator:
               relative index 5 is the player's ball piece.
             
         """
-        def iterator():
-            for i in range(5):
-                piece = 6 * player_ix + i
-                for action in Rules.single_piece_actions(self.game_state, piece):
-                   yield (i, action)
-            for action in Rules.single_ball_actions(self.game_state, player_ix):
-                yield (5, action)
-        return list(iterator())
+        for i in range(5):
+            piece = 6 * player_ix + i
+            for action in Rules.single_piece_actions(self.game_state, piece):
+               yield (i, action)
+        for action in Rules.single_ball_actions(self.game_state, player_ix):
+            yield (5, action)
         
-    def validate_action(self, action: tuple, player_idx: int):
+    def validate_action(self, action: Action, player_idx: PlayerIx) -> bool:
         """
         Checks whether or not the specified action can be taken from this state by the specified player
 
@@ -335,7 +323,7 @@ class GameSimulator:
                 raise ValueError("Cannot move a block that way")
         return True
     
-    def update(self, action: tuple, player_idx: int):
+    def update(self, action: Action, player_idx: PlayerIx):
         """
         Uses a validated action and updates the game board state
         """

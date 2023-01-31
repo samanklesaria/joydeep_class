@@ -1,17 +1,8 @@
 import numpy as np
 from queue import Queue
-from game import BoardState, GameSimulator, Rules, plotstate
+from game import BoardState, GameSimulator, Rules
 
 VALIDATE = True
-
-def view_solution(steps):
-    for (state, action) in steps:
-        st = BoardState(state[0])
-        print("Player", state[1])
-        if action is not None:
-            print("Action", st.decode_single_pos(action[1]))
-        plotstate(st.stated)
-
 
 class Problem:
 
