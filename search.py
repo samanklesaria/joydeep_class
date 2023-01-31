@@ -9,6 +9,12 @@ VALIDATE = True
 # The state for which the game is Markovian
 MarkovState = tuple[EncState, PlayerIx]
 
+# Back-pointer dictionary
+BpDict = dict[MarkovState, tuple[MarkovState | None, Action | None]]
+
+# Planning output
+StPath = Iterable[tuple[MarkovState, Optional[Action]]]
+
 class Problem:
 
     def __init__(self, initial_state, goal_state_set: set):
@@ -103,10 +109,10 @@ class GameStateProblem(Problem):
         return tuple((tuple( s[i] if i != offset_idx + k else v for i in range(len(s))), (p + 1) % 2))
 
 
-    def bfs(self):
-        frontier = Queue()
+    def bfs(self) -> StPath:
+        frontier : Queue[MarkovState] = Queue()
         frontier.put(self.initial_state)
-        parent = {}
+        parent : BpDict = {}
         parent[self.initial_state] = (None, None)
         while not frontier.empty():
             current = frontier.get()
@@ -121,13 +127,14 @@ class GameStateProblem(Problem):
                     self.sim.validate_action(action, current[1])
                 succ = self.execute(current, action)
                 if not (succ in parent):
+                    if VALIDATE:
+                        assert BoardState(succ[0]).is_valid()
                     frontier.put(succ)
                     parent[succ] = (current, action)
-
-BpDict = dict[MarkovState, tuple[MarkovState | None, Action | None]]
+        raise ValueError("No path to goal")
 
 def get_path(current: Optional[MarkovState], parent: BpDict,
-        action: Optional[Action]) -> Iterable[tuple[MarkovState, Optional[Action]]]:
+        action: Optional[Action]) -> StPath:
     "Retrieve the shorest path to a state by following back-pointers"
     if current is not None:
         yield (current, action)

@@ -2,6 +2,8 @@
   - Moving from any state to the same state should take 4 moves: two for each player
   - Moving a block between two random positions should take at least the the infinity norm of the
     coordinates' distance, divided by two.
+  - Choosing a random action at each step cannot take you to an invalid Board state
 - Have better error messages for invalid moves
+- Have some tests for inaccessible states (where a particular goal is impossible)
 - Add some invalid actions for 'test_valid_action' to test
 - Use hamming distance between EncState vectors as A* hueristic (as on the quiz)
