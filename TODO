@@ -1,3 +1,7 @@
+- Add some property based tests (see hypothesis.readthedocs.io)
+  - Moving from any state to the same state should take 4 moves: two for each player
+  - Moving a block between two random positions should take at least the the infinity norm of the
+    coordinates' distance, divided by two.
 - Have better error messages for invalid moves
 - Add some invalid actions for 'test_valid_action' to test
-- Use hamming distance as A* hueristic
+- Use hamming distance between EncState vectors as A* hueristic (as on the quiz)
