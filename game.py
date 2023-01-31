@@ -1,8 +1,11 @@
 import numpy as np
 from collections import namedtuple
-from typing import Set, Union, Iterable, Dict
+from typing import Set, Union, Iterable, Optional
 
-# Representation of the state using coordinates
+# Representation of the state using EncPos
+EncState = Union[tuple, np.ndarray]
+
+# Representation of the state using NdPos
 CoordState = np.ndarray
 
 # Coordinates in the game, as a tuple
@@ -33,7 +36,7 @@ class BoardState:
     Represents a state in the game
     """
 
-    def __init__(self, state=None):
+    def __init__(self, state: Optional[EncState] =None):
         """
         Initializes a fresh game state
         """
@@ -104,7 +107,7 @@ class BoardState:
         r1 = self.stated[self.b[1]][1]
         return r0 == (self.N_ROWS - 1) or r1 == 0 
 
-    def is_valid(self) -> bool:
+    def is_valid(self):
         """
         Checks if a board configuration is valid. This function checks whether the current
         value self.state represents a valid board configuration or not. This encodes and checks
@@ -223,7 +226,7 @@ class Rules:
         players = np.floor_divide(st.block_locs[valid], 6)
         units = (tuple(u) for u in
             np.floor_divide(vecs[valid], norms[valid,None]))
-        moves : Dict[tuple, PotentialMove] = dict()
+        moves : dict[tuple, PotentialMove] = dict()
         for (y, n, p, u) in zip(ys[valid], norms[valid], players, units):
             newmove = PotentialMove(n, p, y)
             if u in moves:

@@ -1,8 +1,13 @@
 import numpy as np
 from queue import Queue
-from game import BoardState, GameSimulator, Rules
+from game import GameSimulator, PlayerIx, EncState, Action, BoardState
+import typing
+from typing import Iterable, Optional
 
 VALIDATE = True
+
+# The state for which the game is Markovian
+MarkovState = tuple[EncState, PlayerIx]
 
 class Problem:
 
@@ -31,7 +36,7 @@ class Problem:
 
 class GameStateProblem(Problem):
 
-    def __init__(self, initial_board_state, goal_board_state, player_idx):
+    def __init__(self, initial_board_state: BoardState, goal_board_state: BoardState, player_idx: PlayerIx):
         """
         player_idx is 0 or 1, depending on which player will be first to move from this initial state.
 
@@ -59,7 +64,7 @@ class GameStateProblem(Problem):
         """
         self.search_alg_fnc = self.bfs
 
-    def get_actions(self, state: tuple):
+    def get_actions(self, state: MarkovState) -> Iterable[Action]:
         """
         From the given state, provide the set possible actions that can be taken from the state
 
@@ -77,7 +82,8 @@ class GameStateProblem(Problem):
 
         return self.sim.generate_valid_actions(p)
 
-    def execute(self, state: tuple, action: tuple):
+    @typing.no_type_check # mypy can't handle numpy's polymorphic indexing
+    def execute(self, state: MarkovState, action: Action) -> MarkovState:
         """
         From the given state, executes the given action
 
@@ -118,7 +124,11 @@ class GameStateProblem(Problem):
                     frontier.put(succ)
                     parent[succ] = (current, action)
 
-def get_path(current, parent, action):
+BpDict = dict[MarkovState, tuple[MarkovState | None, Action | None]]
+
+def get_path(current: Optional[MarkovState], parent: BpDict,
+        action: Optional[Action]) -> Iterable[tuple[MarkovState, Optional[Action]]]:
+    "Retrieve the shorest path to a state by following back-pointers"
     if current is not None:
         yield (current, action)
         pred, action = parent[current]
