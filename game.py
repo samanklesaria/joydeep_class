@@ -1,6 +1,6 @@
 import numpy as np
 from collections import namedtuple
-from typing import Set, Union, Iterable, Optional
+from typing import Set, Union, Iterable, Optional, Tuple, Dict
 
 # Representation of the state using EncPos
 EncState = Union[tuple, np.ndarray]
@@ -9,7 +9,7 @@ EncState = Union[tuple, np.ndarray]
 CoordState = np.ndarray
 
 # Coordinates in the game, as a tuple
-TupPos = tuple[int,int]
+TupPos = Tuple[int,int]
 
 # Coordinates in the game, as an ndarray
 NdPos = np.ndarray
@@ -29,7 +29,7 @@ RelativePieceIx = int # in [0,5]
 PieceIx = int # in [0, 11]
 
 # A move in the game
-Action = tuple[RelativePieceIx, EncPos]
+Action = Tuple[RelativePieceIx, EncPos]
 
 class BoardState:
     """
@@ -226,7 +226,7 @@ class Rules:
         players = np.floor_divide(st.block_locs[valid], 6)
         units = (tuple(u) for u in
             np.floor_divide(vecs[valid], norms[valid,None]))
-        moves : dict[tuple, PotentialMove] = dict()
+        moves : Dict[tuple, PotentialMove] = dict()
         for (y, n, p, u) in zip(ys[valid], norms[valid], players, units):
             newmove = PotentialMove(n, p, y)
             if u in moves:

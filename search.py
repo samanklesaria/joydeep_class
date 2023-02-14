@@ -2,18 +2,18 @@ import numpy as np
 from queue import Queue
 from game import GameSimulator, PlayerIx, EncState, Action, BoardState
 import typing
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Dict, Tuple
 
-VALIDATE = True
+VALIDATE = True # False
 
 # The state for which the game is Markovian
-MarkovState = tuple[EncState, PlayerIx]
+MarkovState = Tuple[EncState, PlayerIx]
 
 # Back-pointer dictionary
-BpDict = dict[MarkovState, tuple[MarkovState | None, Action | None]]
+BpDict = Dict[MarkovState, Tuple[MarkovState | None, Action | None]]
 
 # Planning output
-StPath = Iterable[tuple[MarkovState, Optional[Action]]]
+StPath = Iterable[Tuple[MarkovState, Optional[Action]]]
 
 class Problem:
 
