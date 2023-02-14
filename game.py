@@ -167,16 +167,19 @@ class Rules:
             that piece_idx can move to during this turn.
         """
 
-        if st.state[st.b[piece_ix // 6]] != st.state[piece_ix]:
-            x = st.stated[piece_ix]
-            for move in (np.array([1, 2]), np.array([2, 1])):
-                for d1 in (-1, 1):
-                    for d2 in (-1, 1):
-                        pos = x + move * np.array([d1, d2])
-                        if (pos >= 0).all() and (pos <= np.array([6, 7])).all():
-                            y = st.encode_single_pos(pos)
-                            if not st.occupied(y):
-                                yield y
+        def generator():
+            if st.state[st.b[piece_ix // 6]] != st.state[piece_ix]:
+                x = st.stated[piece_ix]
+                for move in (np.array([1, 2]), np.array([2, 1])):
+                    for d1 in (-1, 1):
+                        for d2 in (-1, 1):
+                            pos = x + move * np.array([d1, d2])
+                            if (pos >= 0).all() and (pos <= np.array([6, 7])).all():
+                                y = st.encode_single_pos(pos)
+                                if not st.occupied(y):
+                                    yield y
+        return list(generator())
+
 
     @staticmethod
     def single_ball_actions(st: BoardState, player_ix: PlayerIx) -> Iterable[EncPos]:
@@ -295,12 +298,14 @@ class GameSimulator:
               relative index 5 is the player's ball piece.
             
         """
-        for i in range(5):
-            piece = 6 * player_ix + i
-            for action in Rules.single_piece_actions(self.game_state, piece):
-               yield (i, action)
-        for action in Rules.single_ball_actions(self.game_state, player_ix):
-            yield (5, action)
+        def generator():
+            for i in range(5):
+                piece = 6 * player_ix + i
+                for action in Rules.single_piece_actions(self.game_state, piece):
+                   yield (i, action)
+            for action in Rules.single_ball_actions(self.game_state, player_ix):
+                yield (5, action)
+        return set(generator())
         
     def validate_action(self, action: Action, player_idx: PlayerIx) -> bool:
         """

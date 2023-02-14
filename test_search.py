@@ -4,6 +4,24 @@ import pytest
 import game
 from game import BoardState, GameSimulator, Rules
 from search import GameStateProblem
+import random
+
+class StopRandWalk(Exception):
+    pass
+
+class RandPolicy:
+    def __init__(self, sim, player):
+        self.player = player
+        self.sim = sim
+        self.num_steps = 0
+
+    def policy(self, _):
+        actions = list(self.sim.generate_valid_actions(self.player))
+        chosen = random.randrange(len(actions))
+        self.num_steps += 1
+        if self.num_steps > 200:
+            raise StopRandWalk()
+        return (actions[chosen], 0)
 
 class TestSearch:
 
@@ -15,6 +33,18 @@ class TestSearch:
         ref = [(tuple((tuple(b1.state), 0)), None)]
 
         assert sln == ref
+
+    def test_random_walk(self):
+        for _ in range(4):
+            players = [None,None]
+            sim = GameSimulator(players)
+            players[0] = RandPolicy(sim, 0)
+            players[1] = RandPolicy(sim, 1)
+            try:
+                sim.run()
+            except StopRandWalk:
+                pass
+
 
     ## NOTE: If you'd like to test multiple variants of your algorithms, enter their keys below
     ## in the parametrize function. Your set_search_alg should then set the correct method to
@@ -86,6 +116,16 @@ class TestSearch:
         ((5,2), 0, True, ""),
         ((5,4), 0, True, ""),
         ((5,5), 0, True, ""),
+
+        # Players with balls can't move
+        ((2,16), 0, False, ""),
+        ((2,18), 0, False, ""),
+        ((2,37), 1, False, ""),
+
+        # Some non-knight's moves
+        ((1,10), 0, False, ""),
+        ((1,16), 0, False, ""),
+        ((1,18), 0, False, ""),
     ])
     def test_validate_action(self, action, player, is_valid, val_msg):
         sim = GameSimulator(None)
