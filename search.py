@@ -1,8 +1,9 @@
 import numpy as np
-from queue import Queue
+from queue import Queue, PriorityQueue
 from game import GameSimulator, PlayerIx, EncState, Action, BoardState
 import typing
-from typing import Iterable, Optional, Dict, Tuple
+from typing import Iterable, Optional, Dict, Tuple, Union
+import heapq
 
 VALIDATE = True # False
 
@@ -10,7 +11,7 @@ VALIDATE = True # False
 MarkovState = Tuple[EncState, PlayerIx]
 
 # Back-pointer dictionary
-BpDict = Dict[MarkovState, Tuple[MarkovState | None, Action | None]]
+BpDict = Dict[MarkovState, Tuple[Union[MarkovState, None], Union[Action,None]]]
 
 # Planning output
 StPath = Iterable[Tuple[MarkovState, Optional[Action]]]
@@ -68,7 +69,10 @@ class GameStateProblem(Problem):
             self.search_alg_fnc = self.your_method
         to indicate which algorithm you'd like to run.
         """
-        self.search_alg_fnc = self.bfs
+        if alg == "astar":
+            self.search_alg_fnc = self.astar
+        else:
+            self.search_alg_fnc = self.bfs
 
     def get_actions(self, state: MarkovState) -> Iterable[Action]:
         """
@@ -132,6 +136,53 @@ class GameStateProblem(Problem):
                     frontier.put(succ)
                     parent[succ] = (current, action)
         raise ValueError("No path to goal")
+
+    def astar(self) -> StPath:
+        frontier = PriorityQueue()
+        frontier.put((0, self.initial_state))
+        parent : BpDict = {}
+        costs_so_far : Dict = {}
+        costs_so_far[self.initial_state] = 0
+        parent[self.initial_state] = (None, None)
+        while not frontier.empty():
+            current = frontier.get()[1]
+            if current in self.goal_state_set:
+                backwards = list(get_path(current, parent, None))
+                backwards.reverse()
+                if VALIDATE:
+                    self.validate_path(backwards)
+                return backwards
+            for action in self.get_actions(current):
+                if VALIDATE:
+                    self.sim.validate_action(action, current[1])
+                succ = self.execute(current, action)
+                new_cost = costs_so_far[current] + 1
+                if (not (succ in parent)) and ((not succ in costs_so_far) or (new_cost < costs_so_far[succ])):
+                    if VALIDATE:
+                        assert BoardState(succ[0]).is_valid()
+                    costs_so_far[succ] = new_cost
+                    frontier.put((new_cost + self.get_heuristic(succ), succ))
+                    parent[succ] = (current, action)
+        raise ValueError("No path to goal")
+
+    def get_heuristic(self, current_state):
+        minimum = 1000
+        player_index = current_state[1]
+        for goal in self.goal_state_set:
+            if (goal[1] == player_index):
+                distance = self.get_hamming(current_state, goal)
+                if (distance < minimum):
+                    minimum = distance
+        return minimum
+    
+    def get_hamming(self, current, goal):
+        distance = 0
+        curr_state = current[0]
+        goal_state = goal[0]
+        for i in range(len(goal_state)):
+            if (curr_state[i] != goal_state[i]):
+                distance = distance + 1
+        return distance
 
 def get_path(current: Optional[MarkovState], parent: BpDict,
         action: Optional[Action]) -> StPath:
