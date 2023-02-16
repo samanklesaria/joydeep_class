@@ -1,11 +1,9 @@
 import numpy as np
 from queue import Queue, PriorityQueue
-from game import GameSimulator, PlayerIx, EncState, Action, BoardState
+from game import GameSimulator, PlayerIx, EncState, Action, BoardState, VALIDATE
 import typing
 from typing import Iterable, Optional, Dict, Tuple, Union
 import heapq
-
-VALIDATE = True # False
 
 # The state for which the game is Markovian
 MarkovState = Tuple[EncState, PlayerIx]
@@ -138,7 +136,7 @@ class GameStateProblem(Problem):
         raise ValueError("No path to goal")
 
     def astar(self) -> StPath:
-        frontier = PriorityQueue()
+        frontier : PriorityQueue[tuple[float, MarkovState]] = PriorityQueue()
         frontier.put((0, self.initial_state))
         parent : BpDict = {}
         costs_so_far : Dict = {}

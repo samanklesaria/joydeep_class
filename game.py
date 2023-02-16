@@ -2,6 +2,8 @@ import numpy as np
 from collections import namedtuple
 from typing import Set, Union, Iterable, Optional, Tuple, Dict
 
+VALIDATE = True
+
 # Representation of the state using EncPos
 EncState = Union[tuple, np.ndarray]
 
@@ -36,25 +38,29 @@ class BoardState:
     Represents a state in the game
     """
 
-    def __init__(self, state: Optional[EncState] =None):
+    locs1 = np.arange(5) # player 1 locs
+    locs2 = 6 + locs1 # player 2 locs
+    b = [5,11] # player ball ixs
+    block_locs = np.concatenate([locs1, locs2])
+
+    def __init__(self, state: Union[EncState, "BoardState", None] =None):
         """
         Initializes a fresh game state
         """
         self.N_ROWS = 8
         self.N_COLS = 7
 
-        if state is not None:
-            self.state = np.array(state)
-        else:
+        if state is None:
             self.state = np.array([1,2,3,4,5,3,50,51,52,53,54,52])
+            self.stated = np.stack(self.make_state())
+        elif not isinstance(state, BoardState):
+            self.state = np.array(state)
+            self.stated = np.stack(self.make_state())
+        else:
+            self.state = np.copy(state.state)
+            self.stated = np.copy(state.stated)
 
         
-        self.locs1 = np.arange(5) # player 1 locs
-        self.locs2 = 6 + self.locs1 # player 2 locs
-        self.b = [5,11] # player ball ixs
-        self.block_locs = np.concatenate([self.locs1, self.locs2])
-
-        self.stated: CoordState = np.stack([np.array(self.decode_single_pos(d)) for d in self.state])
 
     # Maintains Eric's silly list of tuples interface for backwards compat
     @property
@@ -71,7 +77,6 @@ class BoardState:
         """
         self.state[idx] = val
         self.stated[idx, :] = np.array(self.decode_single_pos(self.state[idx]))
-        self.decode_state[idx] = self.decode_single_pos(self.state[idx])
 
     def make_state(self):
         """
@@ -167,18 +172,16 @@ class Rules:
             that piece_idx can move to during this turn.
         """
 
-        def generator():
-            if st.state[st.b[piece_ix // 6]] != st.state[piece_ix]:
-                x = st.stated[piece_ix]
-                for move in (np.array([1, 2]), np.array([2, 1])):
-                    for d1 in (-1, 1):
-                        for d2 in (-1, 1):
-                            pos = x + move * np.array([d1, d2])
-                            if (pos >= 0).all() and (pos <= np.array([6, 7])).all():
-                                y = st.encode_single_pos(pos)
-                                if not st.occupied(y):
-                                    yield y
-        return list(generator())
+        if st.state[st.b[piece_ix // 6]] != st.state[piece_ix]:
+            x = st.stated[piece_ix]
+            for move in (np.array([1, 2]), np.array([2, 1])):
+                for d1 in (-1, 1):
+                    for d2 in (-1, 1):
+                        pos = x + move * np.array([d1, d2])
+                        if (pos >= 0).all() and (pos <= np.array([6, 7])).all():
+                            y = st.encode_single_pos(pos)
+                            if not st.occupied(y):
+                                yield y
 
 
     @staticmethod
@@ -241,17 +244,47 @@ class Rules:
             if v.player == player_ix and v.y not in passes:
                 yield v.y
 
+def next_state(state: BoardState, action: Action, player_idx: PlayerIx):
+    offset_idx = player_idx * 6 ## Either 0 or 6
+    idx, pos = action
+    state2 = BoardState(state)
+    state2.update(offset_idx + idx, pos)
+    return state2
+
+def generate_valid_actions(state: BoardState, player_ix: PlayerIx, can_move: bool = True) -> Iterable[Action]:
+    if can_move:
+        for i in range(5):
+            piece = 6 * player_ix + i
+            for action in Rules.single_piece_actions(state, piece):
+               yield (i, action)
+    for action in Rules.single_ball_actions(state, player_ix):
+        yield (5, action)
+
 class GameSimulator:
     """
     Responsible for handling the game simulation
     """
 
-    def __init__(self, players):
+    def __init__(self, players, n_steps=None, log=False):
         self.game_state = BoardState()
         self.current_round = -1 ## The game starts on round 0; white's move on EVEN rounds; black's move on ODD rounds
         self.players = players
+        self.log = log
+        self.n_steps = n_steps
+
+    def winner(self):
+        return self.current_round % 2
 
     def run(self):
+        "Backwards compat version of 'go' for Eric"
+        self.go()
+        player_idx = self.winner()
+        if player_idx == 0:
+            return self.current_round, "WHITE", "No issues"
+        else:
+            return self.current_round, "BLACK", "No issues"
+    
+    def go(self):
         """
         Runs a game simulation
         """
@@ -261,52 +294,21 @@ class GameSimulator:
             player_idx = self.current_round % 2
             ## For the player who needs to move, provide them with the current game state
             ## and then ask them to choose an action according to their policy
-            action, value = self.players[player_idx].policy( self.game_state.make_state() )
-            print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}")
+            action, value = self.players[player_idx].policy( self.game_state )
+            if self.log:
+                print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}")
 
-            if not self.validate_action(action, player_idx):
-                ## If an invalid action is provided, then the other player will be declared the winner
-                if player_idx == 0:
-                    return self.current_round, "BLACK", "White provided an invalid action"
-                else:
-                    return self.current_round, "WHITE", "Black probided an invalid action"
+            if VALIDATE:
+                self.validate_action(action, player_idx)
 
             ## Updates the game state
             self.update(action, player_idx)
 
         ## Player who moved last is the winner
-        if player_idx == 0:
-            return self.current_round, "WHITE", "No issues"
-        else:
-            return self.current_round, "BLACK", "No issues"
-
-    def generate_valid_actions(self, player_ix: PlayerIx) -> Iterable[Action]:
-        """
-        Given a valid state, and a player's turn, generate the set of possible actions that player can take
-
-        player_idx is either 0 or 1
-
-        Input:
-            - player_idx, which indicates the player that is moving this turn. This will help index into the
-              current BoardState which is self.game_state
-        Outputs:
-            - a set of tuples (relative_idx, encoded position), each of which encodes an action. The set should include
-              all possible actions that the player can take during this turn. relative_idx must be an
-              integer on the interval [0, 5] inclusive. Given relative_idx and player_idx, the index for any
-              piece in the boardstate can be obtained, so relative_idx is the index relative to current player's
-              pieces. Pieces with relative index 0,1,2,3,4 are block pieces that like knights in chess, and
-              relative index 5 is the player's ball piece.
-            
-        """
-        def generator():
-            for i in range(5):
-                piece = 6 * player_ix + i
-                for action in Rules.single_piece_actions(self.game_state, piece):
-                   yield (i, action)
-            for action in Rules.single_ball_actions(self.game_state, player_ix):
-                yield (5, action)
-        return set(generator())
-        
+        if self.log:
+            print("Winner is", player_idx)
+        return player_idx
+       
     def validate_action(self, action: Action, player_idx: PlayerIx) -> bool:
         """
         Checks whether or not the specified action can be taken from this state by the specified player
@@ -339,3 +341,5 @@ class GameSimulator:
         idx, pos = action
         self.game_state.update(offset_idx + idx, pos)
 
+    def generate_valid_actions(self, player_ix: PlayerIx) -> Iterable[Action]:
+        return generate_valid_actions(self.game_state, player_ix)
