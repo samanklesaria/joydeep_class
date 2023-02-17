@@ -1,6 +1,6 @@
 import random
 from typeguard import typechecked
-from game import Action, BoardState, PlayerIx
+from game import Action, BoardState, PlayerIx, GameSimulator
 import game
 import math
 from typing import NamedTuple, Optional, List
@@ -118,12 +118,18 @@ class Edge(NamedTuple):
     action: Optional[Action]
     q: float
     n: int
-    parent_n: int
 
-def get_ucb(e: Edge):
-    return e.q + math.sqrt(2) * math.sqrt(math.log(e.parent_n), e.n)
+def get_ucb(parent_n, e: Edge):
+    return e.q + math.sqrt(2) * math.sqrt(math.log(parent_n), e.n)
 
-class MCTS(HueristicPolicy):
+# TODO: cache gc
+
+# TODO: why should rollouts be random?
+# Surely, if they come across something in the cache,
+# they should act on that information.
+# For now, random is simplest, so implement that first. 
+
+class MCTS(Policy):
     def __init__(self, player, limit=500):
         self.player = player
         self.cache = dict()
@@ -132,28 +138,39 @@ class MCTS(HueristicPolicy):
     # The minimizing player is 1
     def min_action(self, state: BoardState):
         statekey = tuple(state.state) # TODO: remove symmetries
-        if state.is_termination_state():
-            self.cache[statekey] = Edge(None, 1, 1, 1)
         if statekey in self.cache:
             choice = min(self.cache[statekey], key=get_ucb)
             return self.max_action(game.next_state(state, choice.action, 1))
+        elif state.is_termination_state():
+            self.cache[statekey] = [Edge(None, 1, 1)]
         else:
-            self.rollout(state)
+            for a in self.actions(state, 1):
+                self.rollout(statekey, state, a, 1)
 
     # The maximizing player is 0
     def max_action(self, state: BoardState):
         statekey = tuple(state.state) # TODO: remove symmetries
-        if state.is_termination_state():
-            self.cache[statekey] = Edge(None, -1, 1, 1)
-        elif statekey in self.cache:
+        if statekey in self.cache:
             choice = max(self.cache[statekey], key=get_ucb)
             self.min_action(game.next_state(state, choice.action, 0))
+        elif state.is_termination_state():
+            self.cache[statekey] = [Edge(None, -1, 1)]
         else:
-            self.rollout(state)
+            for a in self.actions(state, 0):
+                self.rollout(statekey, state, a, 0)
 
-    def rollout(self, state):
-        pass # TODO
-
+    def rollout(self, statekey, state, action, player):
+        sim = GameSimulator([RandPolicy(0), RandPolicy(1)])
+        sim.current_round = player
+        sim.game_state = game.next_state(state, action, player)
+        winner = sim.go()
+        q = -1 if winner == 1 else 1
+        self.cache[statekey] = Edge(action, q, 1)
+        # TODO: propagate the change back up the tree
+        # Ah, wait. Which player is next to play matters.
+        # We need to normalize stuff in the cache so that player 0
+        # is always next to play, and values are expressed from their persepctive
+            
     def lookup_action(self, state, a):
         cached_val = self.cache[game.next_state(state, a)]
         return ValuedAction(cached_val.action, cached_val.q)
