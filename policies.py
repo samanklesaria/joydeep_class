@@ -147,6 +147,15 @@ class MCTS(Policy):
         self.cache : Dict[EncState, Node] = dict()
         self.limit = limit
 
+    def gc(self):
+        pass
+        # TODO: Keep a priority queue of all the states in my cache
+        # If our cache goes beyond a specified size, delete the min priority one
+        # A hueristic for cache eviction can be least recently used. This means every
+        # time we encounter a state during walk_dag, we must change the priority in the queue.
+        # To prevent a large number of things having the same priority and making the queue unbalanced,
+        # we could add some random noise to the keys.
+
     def walk_dag(self, state: BoardState, player: PlayerIx, parent_key: tuple[int, EncState]):
         while True:
             map_action, statekey = max_view(state.state, player)
@@ -190,7 +199,7 @@ class MCTS(Policy):
     def lookup_action(self, state, a):
         map_action, statekey = max_view(game.next_state(state, a))
         cached_val = self.cache[statekey]
-        return ValuedAction(map_action(cached_val.action), cached_val.q / cachedval.n)
+        return ValuedAction(map_action(cached_val.action), cached_val.q / cached_val.n)
 
     def policy(self, state):
         for _ in range(self.limit):
