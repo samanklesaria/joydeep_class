@@ -1,9 +1,9 @@
 import random
-from typeguard import typechecked
 from game import Action, BoardState, PlayerIx, GameSimulator, EncState
 import game
 import math
-from typing import NamedTuple, Optional, List, Dict, Set
+from typing import NamedTuple, Optional, List, Dict, Set, Tuple
+from queue import Queue
 
 class ValuedAction(NamedTuple):
     action: Optional[Action]
@@ -124,10 +124,10 @@ class Edge(NamedTuple):
 class Node(NamedTuple):
     counts: int
     edges: List[Edge]
-    parents: Set[EncState]
+    parents: Set[Tuple[int, EncState]]
 
 def get_ucb(parent_n: int, e: Edge):
-    return e.q + math.sqrt(2) * math.sqrt(math.log(parent_n) / e.n)
+    return (e.q / e.n) + math.sqrt(2) * math.sqrt(math.log(parent_n) / e.n)
 
 # TODO: cache gc
 # TODO: make rollouts use AlphaBeta internally, with our cache as hueristic
@@ -147,24 +147,38 @@ class MCTS(Policy):
         self.cache : Dict[EncState, Node] = dict()
         self.limit = limit
 
-    def walk_dag(self, state: BoardState, player: PlayerIx, parent_key: EncState):
-        map_action, statekey = max_view(state.state, player)
-        if parent_key is not None:
-            self.cache[statekey].parents.add(parent_key)
-        if statekey in self.cache:
-            n = self.cache[statekey].counts
-            choice = max(enumerate(self.cache[statekey].edges), key=lambda x: get_ucb(n, x[1]))
-            new_state = game.next_state(state, map_action(choice[1].action), player ^ 1)
-            if not new_state.is_termination_state():
-                self.walk_dag(new_state, player ^ 1, statekey)
-        else:
-            self.cache[statekey] = Node(1, [self.rollout(state, a, 0) for a in self.actions(state, 0)],
-                set([parent_key]))
-            self.backprop(statekey)
+    def walk_dag(self, state: BoardState, player: PlayerIx, parent_key: tuple[int, EncState]):
+        while True:
+            map_action, statekey = max_view(state.state, player)
+            if parent_key is not None:
+                self.cache[statekey].parents.add(parent_key)
+            if statekey in self.cache:
+                n = self.cache[statekey].counts
+                choice = max(enumerate(self.cache[statekey].edges), key=lambda x: get_ucb(n, x[1]))
+                new_state = game.next_state(state, map_action(choice[1].action), player ^ 1)
+                if new_state.is_termination_state():
+                    return
+                state = new_state
+                parent_key = (choice[0], statekey)
+                player ^= 1
+            else:
+                self.cache[statekey] = Node(1, [self.rollout(state, a, 0) for a in self.actions(state, 0)],
+                    set([parent_key]))
+                self.backprop(statekey)
+                return
 
-    def backprop(self, state):
-        # TODO: update stuff
-        pass
+    def backprop(self, statekey: EncState):
+        node = self.cache[statekey]
+        q = node.q
+        to_process = Queue()
+        for k in node.parents:
+            to_process.put(k)
+        while not to_process.empty():
+            (i, p) = to_process.get()
+            self.cache[p].edges[i].q += q
+            self.cache[p].edges[i].n += 1
+            for k in self.cache[p].parents:
+                to_process.put(k)
                 
     def rollout(self, state, action, player):
         sim = GameSimulator([RandPolicy(0), RandPolicy(1)])
@@ -176,7 +190,7 @@ class MCTS(Policy):
     def lookup_action(self, state, a):
         map_action, statekey = max_view(game.next_state(state, a))
         cached_val = self.cache[statekey]
-        return ValuedAction(map_action(cached_val.action), cached_val.q)
+        return ValuedAction(map_action(cached_val.action), cached_val.q / cachedval.n)
 
     def policy(self, state):
         for _ in range(self.limit):
