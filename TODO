@@ -1,7 +1,4 @@
-Necessary:
-- Infrastructure to compute success ratios
-- Minimax
-- Alpha Beta
-- Experiment with cache eviction policies for state reuse
+- Write tests
 - Hueristics
 - MCTS
+- Congruence class detection

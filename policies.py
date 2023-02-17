@@ -1,4 +1,5 @@
 import random
+from typeguard import typechecked
 from game import Action, BoardState, PlayerIx
 import game
 import math
@@ -65,10 +66,9 @@ class MinimaxPolicy(HueristicPolicy):
         else:
             return self.min_action(state, 1)
 
-
 class AlphaBeta(HueristicPolicy):
 
-    def min_action(self, state: BoardState, depth: int, alpha, beta):
+    def min_action(self, state: BoardState, depth: int, alpha: ValuedAction, beta: ValuedAction):
         if state.is_termination_state():
             return ValuedAction(None, 1)
         if depth >= self.depth:
@@ -77,11 +77,11 @@ class AlphaBeta(HueristicPolicy):
             beta = min(beta, ValuedAction(a,
                 self.max_action(game.next_state(state, a, 1),
                 depth+1, alpha, beta)[1]), key=get_value)
-            if alpha >= beta:
+            if alpha.value >= beta.value:
                 return alpha
         return beta
 
-    def max_action(self, state: BoardState, depth: int, alpha, beta):
+    def max_action(self, state: BoardState, depth: int, alpha: ValuedAction, beta:ValuedAction):
         if state.is_termination_state():
             return ValuedAction(None, -1)
         if depth >= self.depth:
@@ -90,16 +90,15 @@ class AlphaBeta(HueristicPolicy):
             alpha = max(alpha, ValuedAction(a,
                 self.min_action(game.next_state(state, a, 0),
                 depth+1, alpha, beta)[1]), key=get_value)
-            if alpha >= beta:
+            if alpha.value >= beta.value:
                 return beta
         return alpha
 
     def policy(self, state):
         if self.player == 0:
-            return self.max_action(state, 1, -math.inf, math.inf)
+            return self.max_action(state, 1, no_max_action, no_min_action)
         else:
-            return self.min_action(state, 1, -math.inf, math.inf)
-
+            return self.min_action(state, 1, no_max_action, no_min_action)
 
 class RandPolicy(Policy):
     def policy(self, state):
@@ -107,4 +106,5 @@ class RandPolicy(Policy):
         chosen = random.randrange(len(actions))
         return (actions[chosen], 0)
 
-
+# For MCTS, we should map to a space without symmetries.
+# Perhaps flip the board to the orientation with the highest hash. 
