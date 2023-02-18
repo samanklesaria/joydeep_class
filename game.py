@@ -36,10 +36,10 @@ Action = Tuple[RelativePieceIx, EncPos]
 N_ROWS = 8
 N_COLS = 7
 
-# TODO: test this. Replace the BoardState
-# stuff with them, as they'll be way faster
+default_start_state = np.array([1,2,3,4,5,3,50,51,52,53,54,52])
+
 def decode(state: EncState) -> CoordState:
-    result = np.decode(state, N_COLS)
+    result = np.divmod(state, N_COLS)
     return np.stack([result[1], result[0]]).T
 
 def encode(state: CoordState) -> EncState:
@@ -63,7 +63,7 @@ class BoardState:
         self.N_COLS = 7
 
         if state is None:
-            self.state = np.array([1,2,3,4,5,3,50,51,52,53,54,52])
+            self.state = np.copy(default_start_state)
             self.stated = np.stack(self.make_state())
         elif not isinstance(state, BoardState):
             self.state = np.array(state)
@@ -317,6 +317,7 @@ class GameSimulator:
             self.update(action, player_idx)
 
         ## Player who moved last is the winner
+        player_idx = self.current_round % 2
         if self.log:
             print("Winner is", player_idx)
         return player_idx
