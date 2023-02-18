@@ -59,8 +59,6 @@ class BoardState:
         """
         Initializes a fresh game state
         """
-        self.N_ROWS = 8
-        self.N_COLS = 7
 
         if state is None:
             self.state = np.copy(default_start_state)
@@ -103,7 +101,7 @@ class BoardState:
         Input: a tuple (col, row)
         Output: an integer in the interval [0, 55] inclusive
         """
-        return cr[0] + cr[1] * self.N_COLS
+        return cr[0] + cr[1] * N_COLS
 
     def decode_single_pos(self, n: EncPos) -> TupPos:
         """
@@ -112,7 +110,7 @@ class BoardState:
         Input: an integer in the interval [0, 55] inclusive
         Output: a tuple (col, row)
         """
-        return (n % self.N_COLS, n // self.N_COLS)
+        return (n % N_COLS, n // N_COLS)
 
     def is_termination_state(self) -> bool:
         """
@@ -122,7 +120,7 @@ class BoardState:
         if not self.is_valid(): return False
         r0 = self.stated[self.b[0]][1]
         r1 = self.stated[self.b[1]][1]
-        return r0 == (self.N_ROWS - 1) or r1 == 0 
+        return r0 == (N_ROWS - 1) or r1 == 0 
 
     def is_valid(self):
         """
