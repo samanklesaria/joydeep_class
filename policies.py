@@ -1,8 +1,10 @@
 import random
+from functools import reduce
+import numpy as np
 from game import Action, BoardState, PlayerIx, GameSimulator, EncState
 import game
 import math
-from typing import NamedTuple, Optional, List, Dict, Set, Tuple
+from typing import NamedTuple, Optional, List, Dict, Set, Tuple, Union
 from queue import Queue
 
 class ValuedAction(NamedTuple):
@@ -129,17 +131,60 @@ class Node(NamedTuple):
 def get_ucb(parent_n: int, e: Edge):
     return (e.q / e.n) + math.sqrt(2) * math.sqrt(math.log(parent_n) / e.n)
 
+# TODO: test MCTS
 # TODO: cache gc
 # TODO: make rollouts use AlphaBeta internally, with our cache as hueristic
-# TODO: implement max_view and backprop
 
-def max_view(state: EncState, player) -> EncState:
+swapped_locs = np.concatenate([np.arange(6, 12), np.arange(6)])
+mean_pos = np.array([3, 0])
+flip = np.array([-1, 1])
+
+def inverse_perm(p):
+    "Invert the permutation"
+    s = np.empty_like(p)
+    s[p] = np.arange(p.size)
+    return s
+
+TokenPerm = np.ndarray
+Flip = str
+Composition = List["GroupElt"]
+GroupElt = Union[TokenPerm, Flip, Composition]
+
+def flip_coord(state):
+    return game.encode(flip * (game.decode(state) - mean_pos) + mean_pos)
+
+def apply_op(op, action):
+    if op == "Flip":
+        return (action[0], flip_coord(action[1]))
+    if isinstance(op, TokenPerm):
+        return (op[action[0]], action[1])
+    if isinstance(op, Composition):
+        return reduce(apply_op, reversed(op), initial=action)
+
+def normalized_view(state: EncState, player: PlayerIx) -> (GroupElt, EncState):
     """
-    Transforms the state to the one in which player is player 0.
-    Also returns a way to map actions from the fictional state back to the real one.
+    Transforms the state to a normalized one.
+    Returns a way to map actions from the fictional state back to the real one.
     """
-    # TODO
-    return map_action, tuple(state)
+    action_map = [] # sequence of permutations, applied right to left. 
+
+    # Swap players so that the current player is 0. Action map is unchanged. 
+    state = state if player == 0 else state[swapped_locs]
+
+    # Flip the board left or right
+    state2 = game.encode(flip * (game.decode(state) - mean_pos) + mean_pos)
+    if hash(tuple(state2)) > hash(tuple(state)):
+        state = state2
+        action_map.append("Flip")
+
+    # Sort the tokens of each player
+    ix1 = np.argsort(state[BoardState.locs1])
+    ix2 = 6 + np.argsort(state[BoardState.locs2])
+    sort_perm = np.concatenate([ix1, [5], ix2, [11]])
+    state = state[sort_perm]
+    action_map.append(inverse_perm(ix1))
+   
+    return action_map, tuple(state)
 
 class MCTS(Policy):
     def __init__(self, player, limit=500):
@@ -158,20 +203,20 @@ class MCTS(Policy):
 
     def walk_dag(self, state: BoardState, player: PlayerIx, parent_key: tuple[int, EncState]):
         while True:
-            map_action, statekey = max_view(state.state, player)
+            unmap, statekey = normalized_view(state.state, player)
             if parent_key is not None:
                 self.cache[statekey].parents.add(parent_key)
             if statekey in self.cache:
                 n = self.cache[statekey].counts
                 choice = max(enumerate(self.cache[statekey].edges), key=lambda x: get_ucb(n, x[1]))
-                new_state = game.next_state(state, map_action(choice[1].action), player ^ 1)
+                new_state = game.next_state(state, apply_op(unmap, choice[1].action), player ^ 1)
                 if new_state.is_termination_state():
                     return
                 state = new_state
                 parent_key = (choice[0], statekey)
                 player ^= 1
             else:
-                self.cache[statekey] = Node(1, [self.rollout(state, a, 0) for a in self.actions(state, 0)],
+                self.cache[statekey] = Node(1, [self.rollout(state, a, player) for a in self.actions(state, player)],
                     set([parent_key]))
                 self.backprop(statekey)
                 return

@@ -33,6 +33,18 @@ PieceIx = int # in [0, 11]
 # A move in the game
 Action = Tuple[RelativePieceIx, EncPos]
 
+N_ROWS = 8
+N_COLS = 7
+
+# TODO: test this. Replace the BoardState
+# stuff with them, as they'll be way faster
+def decode(state: EncState) -> CoordState:
+    result = np.decode(state, N_COLS)
+    return np.stack([result[1], result[0]]).T
+
+def encode(state: CoordState) -> EncState:
+    return state[...,0] + state[...,1] * N_COLS
+
 class BoardState:
     """
     Represents a state in the game
@@ -91,7 +103,7 @@ class BoardState:
         Input: a tuple (col, row)
         Output: an integer in the interval [0, 55] inclusive
         """
-        return cr[0] + cr[1] * self.N_COLS 
+        return cr[0] + cr[1] * self.N_COLS
 
     def decode_single_pos(self, n: EncPos) -> TupPos:
         """
