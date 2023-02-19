@@ -1,4 +1,5 @@
 import random
+from dataclasses import dataclass
 from functools import reduce
 import numpy as np
 from game import Action, BoardState, PlayerIx, GameSimulator, EncState
@@ -128,8 +129,9 @@ class RandPolicy(Policy):
         chosen = random.randrange(len(actions))
         return (actions[chosen], 0)
 
-class Edge(NamedTuple):
-    action: Optional[Action]
+@dataclass
+class Edge:
+    action: Action
     q: float
     n: int
 
@@ -156,28 +158,30 @@ mean_pos = np.array([3, 0])
 flip = np.array([-1, 1])
 
 def inverse_perm(p):
-    "Invert the permutation"
-    s = np.empty_like(p)
-    s[p] = np.arange(p.size)
+    "Invert the token permutation"
+    s = np.empty_like(p, shape=6)
+    s[p] = np.arange(5)
+    s[5] = 5 # the ball position is unique
     return s
 
 TokenPerm = np.ndarray
 Flip = str
-Composition = List["GroupElt"]
+Composition = List
 GroupElt = Union[TokenPerm, Flip, Composition]
 
 def flip_coord(state):
     return game.encode(flip * (game.decode(state) - mean_pos) + mean_pos)
 
-def apply_op(op, action):
-    if op == "Flip":
-        return (action[0], flip_coord(action[1]))
+def apply_op(action: Action, op: GroupElt) -> Action:
     if isinstance(op, TokenPerm):
         return (op[action[0]], action[1])
+    if op == "Flip":
+        return (action[0], flip_coord(action[1]))
     if isinstance(op, Composition):
-        return reduce(apply_op, reversed(op), initial=action)
+        return reduce(apply_op, reversed(op), action)
+    raise ValueError("Unknown group element")
 
-def normalized_view(state: EncState, player: PlayerIx) -> (GroupElt, EncState):
+def normalized_view(state: EncState, player: PlayerIx) -> tuple[GroupElt, EncState]:
     """
     Transforms the state to a normalized one.
     Returns a way to map actions from the fictional state back to the real one.
@@ -203,7 +207,7 @@ def normalized_view(state: EncState, player: PlayerIx) -> (GroupElt, EncState):
     return action_map, tuple(state)
 
 class MCTS(Policy):
-    def __init__(self, player, limit=500):
+    def __init__(self, player: PlayerIx, limit : int =50):
         self.player = player
         self.cache : Dict[EncState, Node] = dict()
         self.limit = limit
@@ -217,55 +221,72 @@ class MCTS(Policy):
         # To prevent a large number of things having the same priority and making the queue unbalanced,
         # we could add some random noise to the keys.
 
-    def walk_dag(self, state: BoardState, player: PlayerIx, parent_key: tuple[int, EncState]):
+    def walk_dag(self, state: BoardState, player: PlayerIx):
+        parent_key: Optional[tuple[int, EncState]] = None
+        seen : Set[EncState] = set()
         while True:
             unmap, statekey = normalized_view(state.state, player)
-            if parent_key is not None:
-                self.cache[statekey].parents.add(parent_key)
+            # print("At state", statekey)
+            if statekey in seen:
+                return
+            else:
+                seen.add(statekey)
             if statekey in self.cache:
+                if parent_key is not None:
+                    self.cache[statekey].parents.add(parent_key)
                 n = self.cache[statekey].counts
                 choice = max(enumerate(self.cache[statekey].edges), key=lambda x: get_ucb(n, x[1]))
-                new_state = game.next_state(state, apply_op(unmap, choice[1].action), player ^ 1)
+                new_state = game.next_state(state, apply_op(choice[1].action, unmap), player ^ 1)
                 if new_state.is_termination_state():
                     return
                 state = new_state
                 parent_key = (choice[0], statekey)
                 player ^= 1
             else:
-                self.cache[statekey] = Node(1, [self.rollout(state, a, player) for a in self.actions(state, player)],
-                    set([parent_key]))
-                self.backprop(statekey)
+                edges = [self.rollout(state, a, player) for a in self.actions(state, player)]
+                total_q = sum(e.q for e in edges)
+                parents = set([parent_key]) if parent_key is not None else set()
+                self.cache[statekey] = Node(1, edges, parents)
+                self.backprop(statekey, total_q, len(edges))
                 return
 
-    def backprop(self, statekey: EncState):
+    def backprop(self, statekey: EncState, q: float, n: int):
+        print("Backprop from", statekey)
         node = self.cache[statekey]
-        q = node.q
-        to_process = Queue()
+        to_process : Queue[tuple[int, EncState]] = Queue()
         for k in node.parents:
             to_process.put(k)
         while not to_process.empty():
-            (i, p) = to_process.get()
+            i, p = to_process.get()
             self.cache[p].edges[i].q += q
-            self.cache[p].edges[i].n += 1
+            self.cache[p].edges[i].n += n
             for k in self.cache[p].parents:
                 to_process.put(k)
                 
     def rollout(self, state, action, player):
-        sim = GameSimulator([RandPolicy(0), RandPolicy(1)])
+        sim = GameSimulator([RandPolicy(0), RandPolicy(1)],
+            n_steps=300, validate=False)
         sim.current_round = player
         sim.game_state = game.next_state(state, action, player)
         winner = sim.go()
-        return Edge(action, 1 if winner == player else -1, 1)
+        if winner == player:
+            q = 1
+        elif winner is None:
+            q = 0
+        else:
+            q = -1
+        return Edge(action, q, 1)
             
     def lookup_action(self, state, a):
-        map_action, statekey = max_view(game.next_state(state, a))
+        map_action, statekey = normalized_view(state, self.player)
         cached_val = self.cache[statekey]
         return ValuedAction(map_action(cached_val.action), cached_val.q / cached_val.n)
 
     def policy(self, state):
         for _ in range(self.limit):
+            # print("\nStarting Traversal")
             self.walk_dag(state, self.player)
-        actions = [self.lookup_action(state, a)
-            for a in self.actions(state, self.player)]
-        return max(actions, key=get_value)
-
+        map_action, statekey = normalized_view(state.state, self.player)
+        cached_val = self.cache[statekey]
+        choice = max(cached_val.edges, key=lambda x: x.q)
+        return ValuedAction(choice.action, choice.q)

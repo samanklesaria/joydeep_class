@@ -1,5 +1,4 @@
+- Make stuff faster
+- Get MCTS to work
 - Write tests
 - Hueristics
-- Normalize states for storage in MCTS cache: 0 should be about to play, and we should flip the board vertically to the orientation with the lowest hash.
-- Keep track of parent state in MCTS so that we can backprop updates to the value functions.
-- Keep track of parent state during MCTS tree traversal so we can call UCB with the number of parent counts.

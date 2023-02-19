@@ -1,5 +1,6 @@
 import game
 import numpy as np
+import policies
 
 def test_enc_dec():
     result = game.encode(game.decode(game.default_start_state))
@@ -26,3 +27,4 @@ def test_non_vectorized_dec():
     for _ in range(100):
         s = np.random.randint(55)
         assert np.all(game.decode(s) == game.BoardState().decode_single_pos(s))
+

@@ -275,12 +275,13 @@ class GameSimulator:
     Responsible for handling the game simulation
     """
 
-    def __init__(self, players, n_steps=None, log=False):
+    def __init__(self, players, n_steps=None, log=False, validate=VALIDATE):
         self.game_state = BoardState()
         self.current_round = -1 ## The game starts on round 0; white's move on EVEN rounds; black's move on ODD rounds
         self.players = players
         self.log = log
         self.n_steps = n_steps
+        self.validate = validate
 
     def winner(self):
         return self.current_round % 2
@@ -302,13 +303,17 @@ class GameSimulator:
             ## Determine the round number, and the player who needs to move
             self.current_round += 1
             player_idx = self.current_round % 2
+
+            if self.current_round >= self.n_steps:
+                return None
+
             ## For the player who needs to move, provide them with the current game state
             ## and then ask them to choose an action according to their policy
             action, value = self.players[player_idx].policy( self.game_state )
             if self.log:
                 print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}")
 
-            if VALIDATE:
+            if self.validate:
                 self.validate_action(action, player_idx)
 
             ## Updates the game state
