@@ -226,7 +226,6 @@ class MCTS(Policy):
         seen : Set[EncState] = set()
         while True:
             unmap, statekey = normalized_view(state.state, player)
-            # print("At state", statekey)
             if statekey in seen:
                 return
             else:
@@ -251,7 +250,6 @@ class MCTS(Policy):
                 return
 
     def backprop(self, statekey: EncState, q: float, n: int):
-        print("Backprop from", statekey)
         node = self.cache[statekey]
         to_process : Queue[tuple[int, EncState]] = Queue()
         for k in node.parents:
@@ -284,7 +282,6 @@ class MCTS(Policy):
 
     def policy(self, state):
         for _ in range(self.limit):
-            # print("\nStarting Traversal")
             self.walk_dag(state, self.player)
         map_action, statekey = normalized_view(state.state, self.player)
         cached_val = self.cache[statekey]

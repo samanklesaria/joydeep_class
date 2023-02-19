@@ -1,4 +1,5 @@
 import numpy as np
+from queue import Queue
 from collections import namedtuple
 from typing import Set, Union, Iterable, Optional, Tuple, Dict
 
@@ -214,12 +215,14 @@ class Rules:
         # Look where we can pass ball. Then from there, look for any new places we can pass. And so on. 
         passes = set([y])
 
-        def recurse(x: NdPos):
-            for y in Rules.pass_actions(st, player_ix, x, passes):
-                passes.add(y)
-                recurse(np.array(st.decode_single_pos(y)))
+        balls = Queue()
+        balls.put(decode(y))
+        while not balls.empty():
+            x = balls.get()
+            for yy in Rules.pass_actions(st, player_ix, x, passes):
+                passes.add(yy)
+                balls.put(decode(yy))
 
-        recurse(np.array(st.decode_single_pos(y)))
         passes.remove(y)
         return passes
         
