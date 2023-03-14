@@ -18,9 +18,9 @@ class TestSearch:
         assert sln == ref
 
     def test_random_walk(self):
-        for _ in range(4):
+        for _ in range(40):
             players = [RandPolicy(0), RandPolicy(1)]
-            sim = game.GameSimulator(players, n_steps=1000)
+            sim = game.GameSimulator(players, n_steps=500)
             sim.go()
 
     ## NOTE: If you'd like to test multiple variants of your algorithms, enter their keys below

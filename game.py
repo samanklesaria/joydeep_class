@@ -243,7 +243,7 @@ class Rules:
         valid = (diagonals | verticals | horizontals) & nz
 
         players = np.floor_divide(st.block_locs[valid], 6)
-        units = (tuple(u) for u in
+        units = list(tuple(u) for u in
             np.floor_divide(vecs[valid], norms[valid,None]))
         moves : Dict[tuple, PotentialMove] = dict()
         for (y, n, p, u) in zip(ys[valid], norms[valid], players, units):
