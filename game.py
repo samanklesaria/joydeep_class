@@ -1,6 +1,12 @@
 import numpy as np
 from collections import namedtuple
-from typing import Set, Union, Iterable, Optional, Tuple, Dict
+from typing import NamedTuple, Set, Union, Iterable, Optional, Tuple, Dict, List
+import random
+from dataclasses import dataclass
+from functools import reduce
+import math
+from queue import Queue
+
 
 VALIDATE = True
 
@@ -275,13 +281,14 @@ class GameSimulator:
     Responsible for handling the game simulation
     """
 
-    def __init__(self, players, n_steps=None, log=False, validate=VALIDATE):
+    def __init__(self, players, n_steps=200, log=False, validate=VALIDATE, use_heuristic=False):
         self.game_state = BoardState()
         self.current_round = -1 ## The game starts on round 0; white's move on EVEN rounds; black's move on ODD rounds
         self.players = players
         self.log = log
         self.n_steps = n_steps
         self.validate = validate
+        self.use_heuristic = use_heuristic
 
     def winner(self):
         return self.current_round % 2
@@ -294,18 +301,37 @@ class GameSimulator:
             return self.current_round, "WHITE", "No issues"
         else:
             return self.current_round, "BLACK", "No issues"
+        
+    def get_ball_heuristic(self, state, player_idx):
+        ball_pos_row = ((state.state[player_idx*6+5]) // 8) % 7
+        ball_start_row = player_idx * 8
+        ball_dist = abs(ball_start_row - ball_pos_row) 
+
+        opponent_ball_row = ((state.state[(1-player_idx) * 6 + 5]) // 8) % 7
+        opponent_ball_start_row = (1-player_idx) * 8
+        opponent_dist = abs(opponent_ball_start_row - opponent_ball_row)
+    
+        return (ball_dist - opponent_dist) / 8
     
     def go(self):
         """
         Runs a game simulation
         """
+
         while not self.game_state.is_termination_state():
             ## Determine the round number, and the player who needs to move
             self.current_round += 1
             player_idx = self.current_round % 2
 
             if self.current_round >= self.n_steps:
-                return None
+                if (self.use_heuristic):
+                    val = self.get_ball_heuristic(self.game_state, player_idx)
+                    if (val > 0):
+                        return player_idx
+                    else:
+                        return 1 - player_idx
+                else:
+                    return None
 
             ## For the player who needs to move, provide them with the current game state
             ## and then ask them to choose an action according to their policy
@@ -359,3 +385,97 @@ class GameSimulator:
 
     def generate_valid_actions(self, player_ix: PlayerIx) -> Iterable[Action]:
         return generate_valid_actions(self.game_state, player_ix)
+    
+class Player:
+    def __init__(self, policy_fnc):
+        self.policy_fnc = policy_fnc
+    def policy(self, decode_state):
+        pass
+
+class MCTSPlayer(Player):
+    def __init__(self, gsp, player_idx):
+        """
+        You can customize the signature of the constructor above to suit your needs.
+        In this example, in the above parameters, gsp is a GameStateProblem, and
+        gsp.adversarial_search_method is a method of that class.
+        """
+        super().__init__(gsp.mcts_policy)
+        self.gsp = gsp
+        self.b = BoardState()
+        self.player_idx = player_idx
+    def policy(self, decode_state):
+        """
+        Here, the policy of the player is to consider the current decoded game state
+        and then correctly encode it and provide any additional required parameters to the
+        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
+        return the result of self.policy_fnc
+        """
+        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
+        #state_tup = tuple((encoded_state_tup, self.player_idx))
+        return self.policy_fnc(decode_state, self.player_idx)
+    
+class AlphaBetaPlayer(Player):
+    def __init__(self, gsp, player_idx):
+        """
+        You can customize the signature of the constructor above to suit your needs.
+        In this example, in the above parameters, gsp is a GameStateProblem, and
+        gsp.adversarial_search_method is a method of that class.
+        """
+        super().__init__(gsp.alpha_beta_policy)
+        self.gsp = gsp
+        self.b = BoardState()
+        self.player_idx = player_idx
+    def policy(self, decode_state):
+        """
+        Here, the policy of the player is to consider the current decoded game state
+        and then correctly encode it and provide any additional required parameters to the
+        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
+        return the result of self.policy_fnc
+        """
+        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
+        #state_tup = tuple((encoded_state_tup, self.player_idx))
+        return self.policy_fnc(decode_state, self.player_idx)
+    
+class MinimaxPlayer(Player):
+    def __init__(self, gsp, player_idx):
+        """
+        You can customize the signature of the constructor above to suit your needs.
+        In this example, in the above parameters, gsp is a GameStateProblem, and
+        gsp.adversarial_search_method is a method of that class.
+        """
+        super().__init__(gsp.minimax_policy)
+        self.gsp = gsp
+        self.b = BoardState()
+        self.player_idx = player_idx
+    def policy(self, decode_state):
+        """
+        Here, the policy of the player is to consider the current decoded game state
+        and then correctly encode it and provide any additional required parameters to the
+        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
+        return the result of self.policy_fnc
+        """
+        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
+        #state_tup = tuple((encoded_state_tup, self.player_idx))
+        return self.policy_fnc(decode_state, self.player_idx)
+    
+class RandPlayer(Player):
+    def __init__(self, gsp, player_idx):
+        """
+        You can customize the signature of the constructor above to suit your needs.
+        In this example, in the above parameters, gsp is a GameStateProblem, and
+        gsp.adversarial_search_method is a method of that class.
+        """
+        super().__init__(gsp.random_policy)
+        self.gsp = gsp
+        self.b = BoardState()
+        self.player_idx = player_idx
+    def policy(self, decode_state):
+        """
+        Here, the policy of the player is to consider the current decoded game state
+        and then correctly encode it and provide any additional required parameters to the
+        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
+        return the result of self.policy_fnc
+        """
+        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
+        #state_tup = tuple((encoded_state_tup, self.player_idx))
+        return self.policy_fnc(decode_state, self.player_idx)

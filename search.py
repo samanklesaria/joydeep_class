@@ -1,9 +1,12 @@
 import numpy as np
 from queue import Queue, PriorityQueue
 from game import GameSimulator, PlayerIx, EncState, Action, BoardState, VALIDATE
+import game
 import typing
-from typing import Iterable, Optional, Dict, Tuple, Union
+from typing import Iterable, Optional, Dict, Tuple, Union, NamedTuple, List
+import random
 import heapq
+import math
 
 # The state for which the game is Markovian
 MarkovState = Tuple[EncState, PlayerIx]
@@ -38,6 +41,242 @@ class Problem:
         """
         return state in self.goal_state_set
 
+
+class ValuedAction(NamedTuple):
+    action: Optional[Action]
+    value: float
+
+def get_value(va: ValuedAction):
+    return va.value
+
+class Policy:
+    def __init__(self, player: PlayerIx, depth=3):
+        self.player = player
+        self.depth = depth
+
+    def actions(self, state: BoardState, player: PlayerIx) -> List[Action]:
+        return list(game.generate_valid_actions(state, player))
+    
+class Passive:
+    def actions(self, state: BoardState, player: PlayerIx) -> List[Action]:
+        actions = list(game.generate_valid_actions(state, player, False))
+        random.shuffle(actions)
+        return actions
+
+class HueristicPolicy(Policy):
+    def actions(self, state, player):
+        actions = super().actions(state, player)
+        random.shuffle(actions)
+        return actions
+
+    def pick_leaf_action(self, state: BoardState, player: PlayerIx) -> ValuedAction:
+        return ValuedAction(None, 0)
+
+no_min_action = ValuedAction(None, 1)
+no_max_action = ValuedAction(None, -1)
+
+class MinimaxPolicy(HueristicPolicy):
+
+    # The minimizing player is 1
+    def min_action(self, state: BoardState, depth: int):
+        if state.is_termination_state():
+            return ValuedAction(None, 1)
+        if depth >= self.depth:
+            return self.pick_leaf_action(state, 1)
+        return min((ValuedAction(a,
+            self.max_action(game.next_state(state, a, 1),
+            depth+1)[1]) for a in 
+            self.actions(state, 1)), default=no_min_action, key=get_value)
+
+    # The maximizing player is 0
+    def max_action(self, state: BoardState, depth: int):
+        if state.is_termination_state():
+            return ValuedAction(None, 1)
+        if depth >= self.depth:
+            return self.pick_leaf_action(state, 0)
+        return max((ValuedAction(a,
+            self.min_action(game.next_state(state, a, 0),
+            depth+1)[1]) for a in 
+            self.actions(state, 0)), default=no_max_action, key=get_value)
+
+    def policy(self, state):
+        if self.player == 0:
+            return self.max_action(state, 1)
+        else:
+            return self.min_action(state, 1)
+
+def min_right(a, b, key):
+    "Min, but prefers the right element under equality"
+    return a if key(a) < key(b) else b
+
+def max_right(a, b, key):
+    "Max, but prefers the right element under equality"
+    return a if key(a) > key(b) else b
+
+class AlphaBeta(HueristicPolicy):
+
+    def min_action(self, state: BoardState, depth: int, alpha: ValuedAction, beta: ValuedAction):
+        if state.is_termination_state():
+            return ValuedAction(None, 1)
+        if depth >= self.depth:
+            return self.pick_leaf_action(state, 1)
+        for a in self.actions(state, 1):
+            beta = min_right(beta, ValuedAction(a,
+                self.max_action(game.next_state(state, a, 1),
+                depth+1, alpha, beta)[1]), get_value)
+            if alpha.value > beta.value:
+                return alpha
+            if alpha.value == beta.value:
+                return beta
+        return beta
+
+    def max_action(self, state: BoardState, depth: int, alpha: ValuedAction, beta:ValuedAction):
+        if state.is_termination_state():
+            return ValuedAction(None, -1)
+        if depth >= self.depth:
+            return self.pick_leaf_action(state, 0)
+        for a in self.actions(state, 0):
+            alpha = max_right(alpha, ValuedAction(a,
+                self.min_action(game.next_state(state, a, 0),
+                depth+1, alpha, beta)[1]), get_value)
+            if alpha.value > beta.value:
+                return beta
+            if alpha.value == beta.value:
+                return alpha
+        return alpha
+
+    def policy(self, state):
+        if self.player == 0:
+            return self.max_action(state, 1, no_max_action, no_min_action)
+        else:
+            return self.min_action(state, 1, no_max_action, no_min_action)
+
+class PassiveAlphaBeta(Passive, AlphaBeta):
+    pass
+
+class PassiveMinimax(Passive, MinimaxPolicy):
+    pass
+
+class RandPolicy(Policy):
+    def policy(self, state):
+        actions = self.actions(state, self.player)
+        chosen = random.randrange(len(actions))
+        return (actions[chosen], 0)
+
+class MCTS(HueristicPolicy):
+    class Node:
+        def __init__(self, board_state, parent, player_index):
+            self.board_state = board_state
+            self.q = 0
+            self.n = 0
+            self.win_count = 0
+            self.parent = parent
+            self.children= list()
+            self.actions = list()
+            self.player_index = player_index
+
+    def __init__(self, player: PlayerIx, limit : int =50, rollout_limit = 75):
+        super().__init__(None)
+        self.player = player
+        self.limit = limit
+        self.root = None
+        self.exploration = 0.5 * np.sqrt(2)
+        self.rollout_limit = rollout_limit
+
+    def get_ball_heuristic(self, state, player_idx):
+        ball_pos_row = ((state.state[player_idx*6+5]) // 8) % 7
+        ball_start_row = player_idx * 8
+        ball_dist = abs(ball_start_row - ball_pos_row) 
+
+        opponent_ball_row = ((state.state[(1-player_idx) * 6 + 5]) // 8) % 7
+        opponent_ball_start_row = (1-player_idx) * 8
+        opponent_dist = abs(opponent_ball_start_row - opponent_ball_row)
+    
+        return (ball_dist - opponent_dist) / 8
+
+
+    def walk_dag(self, state: BoardState, player: PlayerIx):
+        current_node = self.root
+        chosen_action = None
+
+        # get to leaf (selection)
+        while current_node.actions:
+            actions = self.actions(current_node.board_state, current_node.player_index)
+
+            best_score = -10000
+            best_action = None
+            best_node = None
+
+            for action in actions:
+                this_score = 0
+
+                child_node = current_node
+                if action in current_node.actions:
+                    # Already explored
+                    child_node = current_node.children[current_node.actions.index(action)]
+                    if current_node.player_index == self.player:
+                        this_score = child_node.q + self.exploration * math.sqrt(math.log(current_node.n)/child_node.n)
+                    else:
+                        this_score = -1 * child_node.q + self.exploration * math.sqrt(math.log(current_node.n)/child_node.n)
+                else:
+                    # First time exploring
+                    this_score = 10000
+
+                if (this_score > best_score):
+                    best_score = this_score
+                    best_action = action
+                    best_node = child_node
+            if (best_node == current_node):
+                chosen_action = best_action
+                break
+
+            current_node = best_node
+
+        if chosen_action is None:
+            actions = self.actions(current_node.board_state, current_node.player_index)
+            chosen_action = actions[(int)(len(actions)*random.random())]
+        
+        # expand from leaf
+        next_state = game.next_state(current_node.board_state, chosen_action, current_node.player_index)
+        next_node = self.Node(next_state, current_node, current_node.player_index ^ 1)
+        current_node.actions.append(chosen_action)
+        current_node.children.append(next_node)
+
+        current_node = next_node
+        self.rollout(current_node)
+
+    def backprop(self, winner, current_node):
+        while current_node:
+            current_node.n += 1
+            current_node.win_count = current_node.win_count + 1 if winner == self.player else current_node.win_count
+            current_node.q = current_node.win_count / current_node.n
+            current_node = current_node.parent
+            
+    def rollout(self, current_node):
+        sim = GameSimulator([RandPolicy(0), RandPolicy(1)],
+            n_steps=self.rollout_limit, validate=False, use_heuristic=True)
+        sim.current_round = current_node.player_index
+        sim.game_state = current_node.board_state
+        #print(str(sim.game_state.state))
+        winner = sim.go()
+        self.backprop(winner, current_node)
+
+    def policy(self, state):
+        board_state = BoardState(state)
+        self.root = self.Node(board_state, None, self.player)
+        
+        for _ in range(self.limit):
+            # print("\nStarting Traversal")
+            self.walk_dag(state, self.player)
+        
+        best_action = None
+        best_value = -10000
+        for child, action in zip(self.root.children,self.root.actions):
+            if child.q > best_value:
+                best_action = action
+                best_value = child.q
+
+        return (best_action, best_value)
 
 class GameStateProblem(Problem):
 
@@ -181,6 +420,22 @@ class GameStateProblem(Problem):
             if (curr_state[i] != goal_state[i]):
                 distance = distance + 1
         return distance
+    
+    def alpha_beta_policy(self, state, player):
+        alpha_beta = AlphaBeta(player)
+        return alpha_beta.policy(state)
+    
+    def minimax_policy(self, state, player):
+        minimax = MinimaxPolicy(player)
+        return minimax.policy(state)
+    
+    def mcts_policy(self, state, player):
+        mcts = MCTS(player)
+        return mcts.policy(state)
+
+    def random_policy(self, state, player):
+        random = RandPolicy(player)
+        return random.policy(state)
 
 def get_path(current: Optional[MarkovState], parent: BpDict,
         action: Optional[Action]) -> StPath:
@@ -189,27 +444,4 @@ def get_path(current: Optional[MarkovState], parent: BpDict,
         yield (current, action)
         pred, action = parent[current]
         yield from get_path(pred, parent, action)
-
-    ## TODO: Implement your search algorithm(s) here as methods of the GameStateProblem.
-    ##       You are free to specify parameters that your method may require.
-    ##       However, you must ensure that your method returns a list of (state, action) pairs, where
-    ##       the first state and action in the list correspond to the initial state and action taken from
-    ##       the initial state, and the last (s,a) pair has s as a goal state, and a=None, and the intermediate
-    ##       (s,a) pairs correspond to the sequence of states and actions taken from the initial to goal state.
-    ## NOTE: The format of state is a tuple: (encoded_state, player_idx), where encoded_state is a tuple of 12 integers
-    ##       (mirroring the contents of BoardState.state), and player_idx is 0 or 1, indicating the player that is
-    ##       moving in this state.
-    ##       The format of action is a tuple: (relative_idx, position), where relative_idx the relative index into encoded_state
-    ##       with respect to player_idx, and position is the encoded position where the piece should move to with this action.
-    ## NOTE: self.get_actions will obtain the current actions available in current game state.
-    ## NOTE: self.execute acts like the transition function.
-    ## NOTE: Remember to set self.search_alg_fnc in set_search_alg above.
-    ## 
-    """ Here is an example:
-    
-    def my_snazzy_search_algorithm(self):
-        ## Some kind of search algorithm
-        ## ...
-        return solution ## Solution is an ordered list of (s,a)
-    """
 

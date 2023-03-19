@@ -2,9 +2,8 @@ import numpy as np
 import queue
 import pytest
 import game
-from game import BoardState, GameSimulator, Rules
+from game import BoardState, GameSimulator, Rules, RandPlayer
 from search import GameStateProblem
-from policies import RandPolicy
 
 class TestSearch:
 
@@ -18,8 +17,11 @@ class TestSearch:
         assert sln == ref
 
     def test_random_walk(self):
+        b1 = BoardState()
+        gsp1 = GameStateProblem(b1, b1, 0)
+        gsp2 = GameStateProblem(b1, b1, 0)
         for _ in range(4):
-            players = [RandPolicy(0), RandPolicy(1)]
+            players = [RandPlayer(gsp1, 0), RandPlayer(gsp2, 1)]
             sim = game.GameSimulator(players, n_steps=1000)
             sim.go()
 
