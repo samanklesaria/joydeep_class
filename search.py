@@ -7,6 +7,7 @@ from typing import Iterable, Optional, Dict, Tuple, Union, NamedTuple, List
 import random
 import heapq
 import math
+from copy import deepcopy
 
 # The state for which the game is Markovian
 MarkovState = Tuple[EncState, PlayerIx]
@@ -70,7 +71,8 @@ class HueristicPolicy(Policy):
         return actions
 
     def pick_leaf_action(self, state: BoardState, player: PlayerIx) -> ValuedAction:
-        return ValuedAction(None, 0)
+        actions = self.actions(state, player)
+        return ValuedAction(random.choice(actions), 0)
 
 no_min_action = ValuedAction(None, 1)
 no_max_action = ValuedAction(None, -1)
@@ -175,25 +177,13 @@ class MCTS(HueristicPolicy):
             self.actions = list()
             self.player_index = player_index
 
-    def __init__(self, player: PlayerIx, limit : int =50, rollout_limit = 75):
+    def __init__(self, player: PlayerIx, limit : int =200, rollout_limit = 75):
         super().__init__(None)
         self.player = player
         self.limit = limit
         self.root = None
-        self.exploration = 0.5 * np.sqrt(2)
+        self.exploration = np.sqrt(2)
         self.rollout_limit = rollout_limit
-
-    def get_ball_heuristic(self, state, player_idx):
-        ball_pos_row = ((state.state[player_idx*6+5]) // 8) % 7
-        ball_start_row = player_idx * 8
-        ball_dist = abs(ball_start_row - ball_pos_row) 
-
-        opponent_ball_row = ((state.state[(1-player_idx) * 6 + 5]) // 8) % 7
-        opponent_ball_start_row = (1-player_idx) * 8
-        opponent_dist = abs(opponent_ball_start_row - opponent_ball_row)
-    
-        return (ball_dist - opponent_dist) / 8
-
 
     def walk_dag(self, state: BoardState, player: PlayerIx):
         current_node = self.root
@@ -212,14 +202,12 @@ class MCTS(HueristicPolicy):
 
                 child_node = current_node
                 if action in current_node.actions:
-                    # Already explored
                     child_node = current_node.children[current_node.actions.index(action)]
                     if current_node.player_index == self.player:
                         this_score = child_node.q + self.exploration * math.sqrt(math.log(current_node.n)/child_node.n)
                     else:
                         this_score = -1 * child_node.q + self.exploration * math.sqrt(math.log(current_node.n)/child_node.n)
                 else:
-                    # First time exploring
                     this_score = 10000
 
                 if (this_score > best_score):
@@ -236,7 +224,6 @@ class MCTS(HueristicPolicy):
             actions = self.actions(current_node.board_state, current_node.player_index)
             chosen_action = actions[(int)(len(actions)*random.random())]
         
-        # expand from leaf
         next_state = game.next_state(current_node.board_state, chosen_action, current_node.player_index)
         next_node = self.Node(next_state, current_node, current_node.player_index ^ 1)
         current_node.actions.append(chosen_action)
@@ -251,14 +238,15 @@ class MCTS(HueristicPolicy):
             current_node.win_count = current_node.win_count + 1 if winner == self.player else current_node.win_count
             current_node.q = current_node.win_count / current_node.n
             current_node = current_node.parent
-            
+
     def rollout(self, current_node):
         sim = GameSimulator([RandPolicy(0), RandPolicy(1)],
             n_steps=self.rollout_limit, validate=False, use_heuristic=True)
         sim.current_round = current_node.player_index
-        sim.game_state = current_node.board_state
+        sim.game_state = deepcopy(current_node.board_state)
         #print(str(sim.game_state.state))
         winner = sim.go()
+        #print(winner)
         self.backprop(winner, current_node)
 
     def policy(self, state):
@@ -272,6 +260,9 @@ class MCTS(HueristicPolicy):
         best_action = None
         best_value = -10000
         for child, action in zip(self.root.children,self.root.actions):
+            #print('---------------')
+            #print(child.n)
+            #print(child.q)
             if child.q > best_value:
                 best_action = action
                 best_value = child.q
@@ -421,8 +412,8 @@ class GameStateProblem(Problem):
                 distance = distance + 1
         return distance
     
-    def alpha_beta_policy(self, state, player):
-        alpha_beta = AlphaBeta(player)
+    def alpha_beta_policy(self, state, player, depth):
+        alpha_beta = AlphaBeta(player, depth)
         return alpha_beta.policy(state)
     
     def minimax_policy(self, state, player):

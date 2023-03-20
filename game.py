@@ -313,6 +313,45 @@ class GameSimulator:
     
         return (ball_dist - opponent_dist) / 8
     
+    def get_pass_options(self, board_state, player_idx):
+        explored_players = set()
+        reachable_players = list()
+
+        state = np.reshape(board_state.state, (2,-1))
+        ball_pos =  state[player_idx][5] 
+
+        reachable_players.append(ball_pos)
+        while reachable_players:
+            item = reachable_players.pop(0)    
+            current_col, current_row = board_state.decode_single_pos(item)
+            explored_players.add(item)
+            for player_pos in state[player_idx][:5]: 
+                if player_pos not in explored_players:
+                    player_col, player_row = board_state.decode_single_pos(player_pos)
+                    if abs(player_col - current_col) == abs(player_row - current_row):
+                        reachable_players.append(player_pos)
+                    elif abs(player_col - current_col) == 0:
+                        reachable_players.append(player_pos)
+                    elif abs(player_row - current_row) == 0:
+                        reachable_players.append(player_pos)
+        return explored_players
+
+    def get_striking_distance(self, state, player_idx):
+        reachable_players = self.get_pass_options(state,player_idx)
+        furthest_player_row = None
+        distance = 0
+        if player_idx:
+            _, furthest_player_row = state.decode_single_pos(min(reachable_players))
+            distance = math.floor((8 - furthest_player_row) / 2) - 1
+        else:
+            _, furthest_player_row = state.decode_single_pos(max(reachable_players))
+            distance = math.floor((furthest_player_row) / 2) - 1
+        h = (distance - 1) / 2
+        return h
+    
+    def get_heuristic(self, state,player_idx):
+        return (self.get_striking_distance(state,player_idx) - self.get_striking_distance(state, 1-player_idx)) / 2
+    
     def go(self):
         """
         Runs a game simulation
@@ -325,7 +364,7 @@ class GameSimulator:
 
             if self.current_round >= self.n_steps:
                 if (self.use_heuristic):
-                    val = self.get_ball_heuristic(self.game_state, player_idx)
+                    val = self.get_heuristic(self.game_state, player_idx)
                     if (val > 0):
                         return player_idx
                     else:
@@ -415,7 +454,7 @@ class MCTSPlayer(Player):
         return self.policy_fnc(decode_state, self.player_idx)
     
 class AlphaBetaPlayer(Player):
-    def __init__(self, gsp, player_idx):
+    def __init__(self, gsp, player_idx, depth=3):
         """
         You can customize the signature of the constructor above to suit your needs.
         In this example, in the above parameters, gsp is a GameStateProblem, and
@@ -425,6 +464,7 @@ class AlphaBetaPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
+        self.depth = depth
     def policy(self, decode_state):
         """
         Here, the policy of the player is to consider the current decoded game state
@@ -434,7 +474,7 @@ class AlphaBetaPlayer(Player):
         """
         #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
         #state_tup = tuple((encoded_state_tup, self.player_idx))
-        return self.policy_fnc(decode_state, self.player_idx)
+        return self.policy_fnc(decode_state, self.player_idx, self.depth)
     
 class MinimaxPlayer(Player):
     def __init__(self, gsp, player_idx):

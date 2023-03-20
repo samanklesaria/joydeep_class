@@ -26,6 +26,13 @@ def alpha_beta_game():
     sim = game.GameSimulator(players, n_steps=200, log=True)
     sim.go()
 
-mcts_game()
+#mcts_game()
 #minimax_game()
 #alpha_beta_game()
+
+count = 0
+for i in range(1):
+    winner = mcts_game()
+    if (not winner):
+        count = count + 1
+print(count)
