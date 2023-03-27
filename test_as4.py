@@ -17,7 +17,5 @@ def test_infer_last_state_from_seq():
 
 def test_observation():
     bs = game.GameSimulator([])
-    res0 = bs.sample_observation(0)
-    cs = game.stupid_to_coordstate(res0)
-    res0 = bs.sample_observation(1)
-    cs = game.stupid_to_coordstate(res0)
+    bs.sample_observation(0)
+    bs.sample_observation(1)

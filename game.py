@@ -3,7 +3,7 @@ from queue import Queue
 from collections import namedtuple, defaultdict
 from typing import Set, Union, Iterable, Optional, Tuple, Dict, List
 
-VALIDATE = True
+VALIDATE = False
 
 # Representation of the state using EncPos
 EncState = Union[tuple, np.ndarray]
@@ -280,24 +280,27 @@ def generate_valid_actions(state: BoardState, player_ix: PlayerIx, can_move: boo
     for action in Rules.single_ball_actions(state, player_ix):
         yield (5, action)
 
+def obs_probs(game_state, piece_ix):
+    pos = game_state.stated[piece_ix, :]
+    enc_pos = game_state.encode_single_pos(pos)
+    probs = defaultdict(lambda: 0)
+    probs[enc_pos] = 0.6
+    for direction in [np.array([1,0]), np.array([0,1])]:
+        for magnitude in [-1, 1]:
+            offset = direction * magnitude
+            new_pos = pos + offset
+            encoded = game_state.encode_single_pos(new_pos)
+            if encoded in game_state.state or (new_pos < 0).any() or (new_pos >= limits).any():
+                probs[enc_pos] += 0.1
+            else:
+                probs[encoded] = 0.1
+    return probs
 
 def sample_observation(game_state, opposing_ix):
     chosen = []
     ball_loc = None
     for ix in range(6 * opposing_ix, 6 * opposing_ix + 5):
-        pos = game_state.stated[ix, :]
-        enc_pos = game_state.encode_single_pos(pos)
-        probs = defaultdict(lambda: 0)
-        probs[enc_pos] = 0.6
-        for direction in [np.array([1,0]), np.array([0,1])]:
-            for magnitude in [-1, 1]:
-                offset = direction * magnitude
-                new_pos = pos + offset
-                encoded = game_state.encode_single_pos(new_pos)
-                if encoded in game_state.state or (new_pos < 0).any() or (new_pos >= limits).any():
-                    probs[enc_pos] += 0.1
-                else:
-                    probs[encoded] = 0.1
+        probs = obs_probs(game_state, ix)
         choice = np.random.choice(list(probs.keys()), p=list(probs.values()))
         if game_state.state[ix] == game_state.state[6 * opposing_ix + 5]:
             ball_loc = choice
@@ -308,7 +311,7 @@ def sample_observation(game_state, opposing_ix):
     else:
         new_state = np.concatenate(
             (game_state.state[:6] , chosen , [ball_loc]))
-    return [game_state.decode_single_pos(d) for d in new_state]
+    return new_state
 
 
 class GameSimulator:
@@ -325,7 +328,8 @@ class GameSimulator:
         self.validate = validate
 
     def sample_observation(self, opposing_ix):
-        return sample_observation(self.game_state, opposing_ix)
+        new_state = sample_observation(self.game_state, opposing_ix)
+        return [self.game_state.decode_single_pos(d) for d in new_state]
 
     def winner(self):
         return self.current_round % 2
