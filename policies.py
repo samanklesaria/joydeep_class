@@ -128,3 +128,14 @@ class RandPolicy(Policy):
         actions = self.actions(state, self.player)
         chosen = random.randrange(len(actions))
         return (actions[chosen], 0)
+
+class RandLogger(Policy):
+    def __init__(self, player: PlayerIx, statelog):
+        self.player = player
+        self.statelog = statelog
+
+    def policy(self, state):
+        self.statelog.append(game.sample_observation(state, self.player ^ 1))
+        actions = self.actions(state, self.player)
+        chosen = random.randrange(len(actions))
+        return (actions[chosen], 0)

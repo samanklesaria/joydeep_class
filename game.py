@@ -280,6 +280,37 @@ def generate_valid_actions(state: BoardState, player_ix: PlayerIx, can_move: boo
     for action in Rules.single_ball_actions(state, player_ix):
         yield (5, action)
 
+
+def sample_observation(game_state, opposing_ix):
+    chosen = []
+    ball_loc = None
+    for ix in range(6 * opposing_ix, 6 * opposing_ix + 5):
+        pos = game_state.stated[ix, :]
+        enc_pos = game_state.encode_single_pos(pos)
+        probs = defaultdict(lambda: 0)
+        probs[enc_pos] = 0.6
+        for direction in [np.array([1,0]), np.array([0,1])]:
+            for magnitude in [-1, 1]:
+                offset = direction * magnitude
+                new_pos = pos + offset
+                encoded = game_state.encode_single_pos(new_pos)
+                if encoded in game_state.state or (new_pos < 0).any() or (new_pos >= limits).any():
+                    probs[enc_pos] += 0.1
+                else:
+                    probs[encoded] = 0.1
+        choice = np.random.choice(list(probs.keys()), p=list(probs.values()))
+        if game_state.state[ix] == game_state.state[6 * opposing_ix + 5]:
+            ball_loc = choice
+        chosen.append(choice)
+    if opposing_ix == 0:
+        new_state = np.concatenate(
+            (chosen, [ball_loc], game_state.state[6:]))
+    else:
+        new_state = np.concatenate(
+            (game_state.state[:6] , chosen , [ball_loc]))
+    return [game_state.decode_single_pos(d) for d in new_state]
+
+
 class GameSimulator:
     """
     Responsible for handling the game simulation
@@ -294,33 +325,7 @@ class GameSimulator:
         self.validate = validate
 
     def sample_observation(self, opposing_ix):
-        chosen = []
-        ball_loc = None
-        for ix in range(6 * opposing_ix, 6 * opposing_ix + 5):
-            pos = self.game_state.stated[ix, :]
-            enc_pos = self.game_state.encode_single_pos(pos)
-            probs = defaultdict(lambda: 0)
-            probs[enc_pos] = 0.6
-            for direction in [np.array([1,0]), np.array([0,1])]:
-                for magnitude in [-1, 1]:
-                    offset = direction * magnitude
-                    new_pos = pos + offset
-                    encoded = self.game_state.encode_single_pos(new_pos)
-                    if encoded in self.game_state.state or (new_pos < 0).any() or (new_pos >= limits).any():
-                        probs[enc_pos] += 0.1
-                    else:
-                        probs[encoded] = 0.1
-            choice = np.random.choice(list(probs.keys()), p=list(probs.values()))
-            if self.game_state.state[ix] == self.game_state.state[6 * opposing_ix + 5]:
-                ball_loc = choice
-            chosen.append(choice)
-        if opposing_ix == 0:
-            new_state = np.concatenate(
-                (chosen, [ball_loc], self.game_state.state[6:]))
-        else:
-            new_state = np.concatenate(
-                (self.game_state.state[:6] , chosen , [ball_loc]))
-        return [self.game_state.decode_single_pos(d) for d in new_state]
+        return sample_observation(self.game_state, opposing_ix)
 
     def winner(self):
         return self.current_round % 2
