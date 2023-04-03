@@ -268,6 +268,17 @@ class MCTS(HueristicPolicy):
                 best_value = child.q
 
         return (best_action, best_value)
+    
+class RandLogger(Policy):
+    def __init__(self, player: PlayerIx, statelog):
+        self.player = player
+        self.statelog = statelog
+
+    def policy(self, state):
+        self.statelog.append(game.sample_observation(state, self.player ^ 1))
+        actions = self.actions(state, self.player)
+        chosen = random.randrange(len(actions))
+        return (actions[chosen], 0)
 
 class GameStateProblem(Problem):
 
@@ -426,6 +437,10 @@ class GameStateProblem(Problem):
 
     def random_policy(self, state, player):
         random = RandPolicy(player)
+        return random.policy(state)
+    
+    def random_logger_policy(self, state, player, log = []):
+        random = RandLogger(player, log)
         return random.policy(state)
 
 def get_path(current: Optional[MarkovState], parent: BpDict,

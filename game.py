@@ -1,6 +1,6 @@
 import numpy as np
-from collections import namedtuple
-from typing import NamedTuple, Set, Union, Iterable, Optional, Tuple, Dict, List
+from collections import namedtuple, defaultdict
+from typing import Set, Union, Iterable, Optional, Tuple, Dict, List
 import random
 from dataclasses import dataclass
 from functools import reduce
@@ -8,7 +8,7 @@ import math
 from queue import Queue
 
 
-VALIDATE = True
+VALIDATE = False
 
 # Representation of the state using EncPos
 EncState = Union[tuple, np.ndarray]
@@ -23,6 +23,9 @@ TupPos = Tuple[int,int]
 NdPos = np.ndarray
 
 Pos = Union[TupPos, NdPos]
+
+# Representation of the state as a list of Pos
+StupidState = List[Pos]
 
 # Encoded position
 EncPos = int
@@ -42,6 +45,8 @@ Action = Tuple[RelativePieceIx, EncPos]
 N_ROWS = 8
 N_COLS = 7
 
+limits = np.array([N_COLS, N_ROWS])
+
 default_start_state = np.array([1,2,3,4,5,3,50,51,52,53,54,52])
 
 def decode(state: EncState) -> CoordState:
@@ -50,6 +55,10 @@ def decode(state: EncState) -> CoordState:
 
 def encode(state: CoordState) -> EncState:
     return state[...,0] + state[...,1] * N_COLS
+
+
+def stupid_to_coordstate(ss: StupidState) -> CoordState:
+    return np.stack([np.array(a) for a in ss])
 
 class BoardState:
     """
@@ -276,6 +285,39 @@ def generate_valid_actions(state: BoardState, player_ix: PlayerIx, can_move: boo
     for action in Rules.single_ball_actions(state, player_ix):
         yield (5, action)
 
+def obs_probs(game_state, piece_ix):
+    pos = game_state.stated[piece_ix, :]
+    enc_pos = game_state.encode_single_pos(pos)
+    probs = defaultdict(lambda: 0)
+    probs[enc_pos] = 0.6
+    for direction in [np.array([1,0]), np.array([0,1])]:
+        for magnitude in [-1, 1]:
+            offset = direction * magnitude
+            new_pos = pos + offset
+            encoded = game_state.encode_single_pos(new_pos)
+            if encoded in game_state.state or (new_pos < 0).any() or (new_pos >= limits).any():
+                probs[enc_pos] += 0.1
+            else:
+                probs[encoded] = 0.1
+    return probs
+
+def sample_observation(game_state, opposing_ix):
+    chosen = []
+    ball_loc = None
+    for ix in range(6 * opposing_ix, 6 * opposing_ix + 5):
+        probs = obs_probs(game_state, ix)
+        choice = np.random.choice(list(probs.keys()), p=list(probs.values()))
+        if game_state.state[ix] == game_state.state[6 * opposing_ix + 5]:
+            ball_loc = choice
+        chosen.append(choice)
+    if opposing_ix == 0:
+        new_state = np.concatenate(
+            (chosen, [ball_loc], game_state.state[6:]))
+    else:
+        new_state = np.concatenate(
+            (game_state.state[:6] , chosen , [ball_loc]))
+    return new_state
+
 class GameSimulator:
     """
     Responsible for handling the game simulation
@@ -289,6 +331,10 @@ class GameSimulator:
         self.n_steps = n_steps
         self.validate = validate
         self.use_heuristic = use_heuristic
+    
+    def sample_observation(self, opposing_ix):
+        new_state = sample_observation(self.game_state, opposing_ix)
+        return [self.game_state.decode_single_pos(d) for d in new_state]
 
     def winner(self):
         return self.current_round % 2
@@ -519,3 +565,29 @@ class RandPlayer(Player):
         #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
         #state_tup = tuple((encoded_state_tup, self.player_idx))
         return self.policy_fnc(decode_state, self.player_idx)
+    
+
+class RandLoggerPlayer(Player):
+    def __init__(self, gsp, player_idx, log):
+        """
+        You can customize the signature of the constructor above to suit your needs.
+        In this example, in the above parameters, gsp is a GameStateProblem, and
+        gsp.adversarial_search_method is a method of that class.
+        """
+        super().__init__(gsp.random_logger_policy)
+        self.gsp = gsp
+        self.b = BoardState()
+        self.player_idx = player_idx
+        self.statelog = log
+    def policy(self, decode_state):
+        """
+        Here, the policy of the player is to consider the current decoded game state
+        and then correctly encode it and provide any additional required parameters to the
+        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
+        return the result of self.policy_fnc
+        """
+        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
+        #state_tup = tuple((encoded_state_tup, self.player_idx))
+        obs = sample_observation(decode_state, self.player_idx ^ 1)
+        self.statelog.append(obs)
+        return self.policy_fnc(decode_state, self.player_idx, self.statelog)

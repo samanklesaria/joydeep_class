@@ -1,6 +1,6 @@
 import game
 import numpy as np
-import policies
+import util
 
 def test_enc_dec():
     result = game.encode(game.decode(game.default_start_state))
@@ -28,3 +28,13 @@ def test_non_vectorized_dec():
         s = np.random.randint(55)
         assert np.all(game.decode(s) == game.BoardState().decode_single_pos(s))
 
+def test_observation():
+    bs = game.GameSimulator([])
+    print("Opponent 0")
+    res0 = bs.sample_observation(0)
+    cs = game.stupid_to_coordstate(res0)
+    util.printstate(cs)
+    print("\nOpponent 1")
+    res0 = bs.sample_observation(1)
+    cs = game.stupid_to_coordstate(res0)
+    util.printstate(cs)
