@@ -1,9 +1,7 @@
 import game
 import numpy as np
-import util
-from game import BoardState, MCTSPlayer, AlphaBetaPlayer, MinimaxPlayer, RandPlayer, RandLoggerPlayer
+from game import BoardState, MCTSPlayer, AlphaBetaPlayer, MinimaxPlayer, RandPlayer, RandLoggerPlayer, smc
 from search import GameStateProblem
-from particle_filter import smc
 
 def fake_observations():
     log = []

@@ -8,7 +8,7 @@ def mcts_game():
     gsp2 = GameStateProblem(b1, b1, 0)
     players = [MCTSPlayer(gsp1, 0), RandPlayer(gsp2, 1)]
     sim = game.GameSimulator(players, n_steps=200, log=True)
-    sim.go()
+    sim.run()
 
 def minimax_game():
     b1 = BoardState()
@@ -16,7 +16,7 @@ def minimax_game():
     gsp2 = GameStateProblem(b1, b1, 0)
     players = [MinimaxPlayer(gsp1, 0), RandPlayer(gsp2, 1)]
     sim = game.GameSimulator(players, n_steps=200, log=True)
-    sim.go()
+    sim.run()
 
 def alpha_beta_game():
     b1 = BoardState()
@@ -24,7 +24,7 @@ def alpha_beta_game():
     gsp2 = GameStateProblem(b1, b1, 0)
     players = [AlphaBetaPlayer(gsp1, 0), RandPlayer(gsp2, 1)]
     sim = game.GameSimulator(players, n_steps=200, log=True)
-    sim.go()
+    sim.run()
 
 #mcts_game()
 #minimax_game()
@@ -32,7 +32,7 @@ def alpha_beta_game():
 
 count = 0
 for i in range(1):
-    winner = mcts_game()
+    winner = minimax_game()
     if (not winner):
         count = count + 1
 print(count)

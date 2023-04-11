@@ -1,3 +1,4 @@
+from copy import deepcopy
 import numpy as np
 from collections import namedtuple, defaultdict
 from typing import Set, Union, Iterable, Optional, Tuple, Dict, List
@@ -6,6 +7,7 @@ from dataclasses import dataclass
 from functools import reduce
 import math
 from queue import Queue
+import numpy.random as npr
 
 
 VALIDATE = False
@@ -285,6 +287,45 @@ def generate_valid_actions(state: BoardState, player_ix: PlayerIx, can_move: boo
     for action in Rules.single_ball_actions(state, player_ix):
         yield (5, action)
 
+# Posterior state density, given that player just moved
+def get_posterior(obs: EncState, state: BoardState, player: PlayerIx) -> float:
+    temp = BoardState(obs)
+    encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+    relevant_obs = encoded_obs[6 * player : 6 * player + 5]
+    total_prob = 1.0
+    for ix, y in enumerate(relevant_obs):
+        piece_ix = 6 * player + ix
+        probs = obs_probs(state, piece_ix)
+        total_prob *= probs[y]
+    return total_prob
+
+def resample(particles, weights):
+    N = len(weights)
+    weights = weights / np.sum(weights)
+    u = (np.arange(N) + npr.rand()) / N
+    bins = np.cumsum(weights)
+    result = np.digitize(u, bins)
+    print('result')
+    print(result)
+    new_particles = []
+    for index in result:
+        new_particles.append(deepcopy(particles[index]))
+    return new_particles
+
+
+def particle_filter(obs, old_particles, player_index):
+    weights = []
+    player = player_index ^ 1
+    for state in old_particles:
+        state_copy = deepcopy(state)
+        actions = list(generate_valid_actions(state_copy, player))
+        chosen = random.randrange(len(actions))
+        offset, pos = actions[chosen]
+        state_copy.update(offset + player * 6, pos)
+        weights.append(get_posterior(obs, state_copy, player))
+    particles = resample(old_particles, weights)
+    return particles
+
 def obs_probs(game_state, piece_ix):
     pos = game_state.stated[piece_ix, :]
     enc_pos = game_state.encode_single_pos(pos)
@@ -300,6 +341,21 @@ def obs_probs(game_state, piece_ix):
             else:
                 probs[encoded] = 0.1
     return probs
+
+def smc(observations, player_index=0):
+    particles = np.array([BoardState() for _ in range(500)])
+    player = player_index
+    for obs in observations:
+        weights = []
+        for state in particles:
+            actions = list(generate_valid_actions(state, player))
+            chosen = random.randrange(len(actions))
+            offset, pos = actions[chosen]
+            state.update(offset + player * 6, pos)
+            weights.append(get_posterior(obs, state, player))
+        particles = resample(particles, weights)
+        player ^= 1
+    return particles
 
 def sample_observation(game_state, opposing_ix):
     chosen = []
@@ -323,7 +379,7 @@ class GameSimulator:
     Responsible for handling the game simulation
     """
 
-    def __init__(self, players, n_steps=200, log=False, validate=VALIDATE, use_heuristic=False):
+    def __init__(self, players, n_steps=200, log=False, validate=VALIDATE, use_heuristic=False, tries_per_round=7):
         self.game_state = BoardState()
         self.current_round = -1 ## The game starts on round 0; white's move on EVEN rounds; black's move on ODD rounds
         self.players = players
@@ -331,14 +387,54 @@ class GameSimulator:
         self.n_steps = n_steps
         self.validate = validate
         self.use_heuristic = use_heuristic
+        self.max_tries_per_round = tries_per_round
     
     def sample_observation(self, opposing_ix):
         new_state = sample_observation(self.game_state, opposing_ix)
+        print('new state for player ' + str(opposing_ix ^ 1) + ' is ')
+        print(new_state)
         return [self.game_state.decode_single_pos(d) for d in new_state]
 
     def winner(self):
         return self.current_round % 2
 
+    def run(self):
+        """
+        Runs a game simulation
+        """
+        while not self.game_state.is_termination_state():
+            ## Determine the round number, and the player who needs to move
+            self.current_round += 1
+            player_idx = self.current_round % 2
+            ## For the player who needs to move, provide them with the current game state
+            ## and then ask them to choose an action according to their policy
+            observation = self.sample_observation((player_idx + 1) % 2)
+            is_valid_action = False
+            tries = 0
+            while (not is_valid_action) and (tries < self.max_tries_per_round):
+                action, value = self.players[player_idx].policy(observation)
+                try:
+                    is_valid_action = self.validate_action(action, player_idx)
+                except ValueError:
+                    is_valid_action = False
+                tries += 1
+                print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}, Validity: {is_valid_action}")
+                self.players[player_idx].process_feedback(observation, action, is_valid_action)
+            if not is_valid_action:
+                ## If an invalid action is provided, then the other player will be declared the winner
+                if player_idx == 0:
+                    return self.current_round, "BLACK", "White provided an invalid action"
+                else:
+                    return self.current_round, "WHITE", "Black provided an invalid action"
+            ## Updates the game state
+            self.update(action, player_idx)
+        ## Player who moved last is the winner
+        if player_idx == 0:
+            return self.current_round, "WHITE", "No issues"
+        else:
+            return self.current_round, "BLACK", "No issues"
+
+    """
     def run(self):
         "Backwards compat version of 'go' for Eric"
         self.go()
@@ -347,6 +443,8 @@ class GameSimulator:
             return self.current_round, "WHITE", "No issues"
         else:
             return self.current_round, "BLACK", "No issues"
+
+    """
         
     def get_ball_heuristic(self, state, player_idx):
         ball_pos_row = ((state.state[player_idx*6+5]) // 8) % 7
@@ -474,97 +572,126 @@ class GameSimulator:
 class Player:
     def __init__(self, policy_fnc):
         self.policy_fnc = policy_fnc
+        self.statelog = []
+        self.particles = np.array([BoardState() for _ in range(500)])
     def policy(self, decode_state):
+        pass
+    def process_feedback(self, observation, action, is_valid):
         pass
 
 class MCTSPlayer(Player):
     def __init__(self, gsp, player_idx):
-        """
-        You can customize the signature of the constructor above to suit your needs.
-        In this example, in the above parameters, gsp is a GameStateProblem, and
-        gsp.adversarial_search_method is a method of that class.
-        """
         super().__init__(gsp.mcts_policy)
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-    def policy(self, decode_state):
-        """
-        Here, the policy of the player is to consider the current decoded game state
-        and then correctly encode it and provide any additional required parameters to the
-        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
-        return the result of self.policy_fnc
-        """
-        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
-        #state_tup = tuple((encoded_state_tup, self.player_idx))
-        return self.policy_fnc(decode_state, self.player_idx)
+
+    def policy(self, observation):
+        self.statelog.append(deepcopy(observation))
+        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
+        lists = [[] for x in range(12)]
+        for particle in self.particles:
+            this_state = particle.state
+            for i in range(12):
+                lists[i].append(this_state[i])
+        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
+        state = BoardState(mode_list)
+        return self.policy_fnc(state, self.player_idx)
     
 class AlphaBetaPlayer(Player):
     def __init__(self, gsp, player_idx, depth=3):
-        """
-        You can customize the signature of the constructor above to suit your needs.
-        In this example, in the above parameters, gsp is a GameStateProblem, and
-        gsp.adversarial_search_method is a method of that class.
-        """
         super().__init__(gsp.alpha_beta_policy)
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
         self.depth = depth
-    def policy(self, decode_state):
-        """
-        Here, the policy of the player is to consider the current decoded game state
-        and then correctly encode it and provide any additional required parameters to the
-        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
-        return the result of self.policy_fnc
-        """
-        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
-        #state_tup = tuple((encoded_state_tup, self.player_idx))
-        return self.policy_fnc(decode_state, self.player_idx, self.depth)
+    def policy(self, observation):
+        self.statelog.append(deepcopy(observation))
+        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
+        lists = [[] for x in range(12)]
+        for particle in self.particles:
+            this_state = particle.state
+            for i in range(12):
+                lists[i].append(this_state[i])
+        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
+        state = BoardState(mode_list)
+        return self.policy_fnc(state, self.player_idx, self.depth)
     
 class MinimaxPlayer(Player):
     def __init__(self, gsp, player_idx):
-        """
-        You can customize the signature of the constructor above to suit your needs.
-        In this example, in the above parameters, gsp is a GameStateProblem, and
-        gsp.adversarial_search_method is a method of that class.
-        """
         super().__init__(gsp.minimax_policy)
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-    def policy(self, decode_state):
-        """
-        Here, the policy of the player is to consider the current decoded game state
-        and then correctly encode it and provide any additional required parameters to the
-        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
-        return the result of self.policy_fnc
-        """
-        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
-        #state_tup = tuple((encoded_state_tup, self.player_idx))
-        return self.policy_fnc(decode_state, self.player_idx)
+    def policy(self, observation):
+        self.statelog.append(deepcopy(observation))
+        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
+        #self.particles = smc(self.statelog, self.player_idx)
+        lists = [[] for x in range(12)]
+        for particle in self.particles:
+            this_state = particle.state
+            for i in range(12):
+                lists[i].append(this_state[i])
+        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
+        state = BoardState(mode_list)
+        return self.policy_fnc(state, self.player_idx)
+
+    """
+    def process_feedback(self, observation, action, is_valid):
+        self.statelog.append(deepcopy(observation))
+        #self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
+        self.particles = smc(self.statelog)
+        if is_valid:
+            return
+        else:
+            ball_action = True if (action[0] == 5) else False
+            if ball_action:
+                print('ball action')
+                print(action)
+            else:
+                # There is an opponent piece here:
+                print('move action')
+                print(action)
+                opponent_location = action[1]
+                weights = []
+                in_count = 0
+                print('opp location ' + str(opponent_location))
+                print('this player ' + str(self.player_idx))
+                for particle in self.particles:
+                    particle_arr = particle.state
+                    print(particle_arr)
+                    subset_arr = particle_arr[6:] if (self.player_idx == 0) else particle[:6]
+                    if not (opponent_location in subset_arr):
+                        weights.append(0)
+                    else:
+                        weights.append(1)
+                        in_count = in_count + 1
+                print('in count ' + str(in_count))
+                print('weights length')
+                print(len(weights))
+                self.particles = resample(self.particles, weights)
+        return
+    """
     
 class RandPlayer(Player):
     def __init__(self, gsp, player_idx):
-        """
-        You can customize the signature of the constructor above to suit your needs.
-        In this example, in the above parameters, gsp is a GameStateProblem, and
-        gsp.adversarial_search_method is a method of that class.
-        """
         super().__init__(gsp.random_policy)
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-    def policy(self, decode_state):
-        """
-        Here, the policy of the player is to consider the current decoded game state
-        and then correctly encode it and provide any additional required parameters to the
-        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
-        return the result of self.policy_fnc
-        """
-        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
-        #state_tup = tuple((encoded_state_tup, self.player_idx))
-        return self.policy_fnc(decode_state, self.player_idx)
+        self.statelog = []
+    def policy(self, observation):
+        self.statelog.append(deepcopy(observation))
+        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
+        #self.particles = smc(self.statelog, self.player_idx)
+        lists = [[] for x in range(12)]
+        for particle in self.particles:
+            this_state = particle.state
+            for i in range(12):
+                lists[i].append(this_state[i])
+        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
+        state = BoardState(mode_list)
+        return self.policy_fnc(state, self.player_idx)
     
 
 class RandLoggerPlayer(Player):
@@ -579,15 +706,14 @@ class RandLoggerPlayer(Player):
         self.b = BoardState()
         self.player_idx = player_idx
         self.statelog = log
-    def policy(self, decode_state):
-        """
-        Here, the policy of the player is to consider the current decoded game state
-        and then correctly encode it and provide any additional required parameters to the
-        assigned policy_fnc (which in this case is gsp.adversarial_search_method), and then
-        return the result of self.policy_fnc
-        """
-        #encoded_state_tup = tuple( self.b.encode_single_pos(s) for s in decode_state )
-        #state_tup = tuple((encoded_state_tup, self.player_idx))
-        obs = sample_observation(decode_state, self.player_idx ^ 1)
-        self.statelog.append(obs)
-        return self.policy_fnc(decode_state, self.player_idx, self.statelog)
+    def policy(self, observation):
+        self.statelog.append(deepcopy(observation))
+        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
+        lists = [[] for x in range(12)]
+        for particle in self.particles:
+            this_state = particle.state
+            for i in range(12):
+                lists[i].append(this_state[i])
+        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
+        state = BoardState(mode_list)
+        return self.policy_fnc(state, self.player_idx, self.statelog)
