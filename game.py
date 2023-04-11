@@ -299,19 +299,21 @@ def get_posterior(obs: EncState, state: BoardState, player: PlayerIx) -> float:
         total_prob *= probs[y]
     return total_prob
 
-def resample(particles, weights):
+def resample(old_particles, weights):
+    N = len(weights)
+    particles = []
+    weights = weights / np.sum(weights)
+    cum_weights = np.cumsum(weights)
+    indices = np.searchsorted(cum_weights, npr.rand(N))
+    particles = old_particles[indices]
+    return particles
+
+def resample2(particles, weights):
     N = len(weights)
     weights = weights / np.sum(weights)
     u = (np.arange(N) + npr.rand()) / N
     bins = np.cumsum(weights)
-    result = np.digitize(u, bins)
-    print('result')
-    print(result)
-    new_particles = []
-    for index in result:
-        new_particles.append(deepcopy(particles[index]))
-    return new_particles
-
+    return particles[np.digitize(u, bins)]
 
 def particle_filter(obs, old_particles, player_index):
     weights = []
@@ -323,6 +325,7 @@ def particle_filter(obs, old_particles, player_index):
         offset, pos = actions[chosen]
         state_copy.update(offset + player * 6, pos)
         weights.append(get_posterior(obs, state_copy, player))
+    print(weights)
     particles = resample(old_particles, weights)
     return particles
 
@@ -353,7 +356,7 @@ def smc(observations, player_index=0):
             offset, pos = actions[chosen]
             state.update(offset + player * 6, pos)
             weights.append(get_posterior(obs, state, player))
-        particles = resample(particles, weights)
+        particles = resample2(particles, weights)
         player ^= 1
     return particles
 
@@ -592,8 +595,11 @@ class MCTSPlayer(Player):
         lists = [[] for x in range(12)]
         for particle in self.particles:
             this_state = particle.state
+            print('hello!!')
+            print(this_state)
             for i in range(12):
                 lists[i].append(this_state[i])
+        print('cya')
         mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
         state = BoardState(mode_list)
         return self.policy_fnc(state, self.player_idx)
