@@ -178,8 +178,8 @@ PotentialMove = namedtuple('PotentialMove', ['norm', 'player', 'y'])
 def lub(a: PotentialMove, b: PotentialMove) -> PotentialMove:
     if a.norm < b.norm:
         return a
-    if a.norm == b.norm:
-        raise ValueError("Two pieces at the same position")
+    #if a.norm == b.norm:
+    #    raise ValueError("Two pieces at the same position")
     return b
 
 class Rules:
@@ -289,26 +289,17 @@ def generate_valid_actions(state: BoardState, player_ix: PlayerIx, can_move: boo
 
 # Posterior state density, given that player just moved
 def get_posterior(obs: EncState, state: BoardState, player: PlayerIx) -> float:
-    temp = BoardState(obs)
-    encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
-    relevant_obs = encoded_obs[6 * player : 6 * player + 5]
+    relevant_obs = obs[6 * player : 6 * player + 5]
+    #print('player is ' + str(player) + ' relevant ' + str(relevant_obs))
     total_prob = 1.0
     for ix, y in enumerate(relevant_obs):
         piece_ix = 6 * player + ix
         probs = obs_probs(state, piece_ix)
+        #print(probs[y])
         total_prob *= probs[y]
     return total_prob
 
-def resample(old_particles, weights):
-    N = len(weights)
-    particles = []
-    weights = weights / np.sum(weights)
-    cum_weights = np.cumsum(weights)
-    indices = np.searchsorted(cum_weights, npr.rand(N))
-    particles = old_particles[indices]
-    return particles
-
-def resample2(particles, weights):
+def resample(particles, weights):
     N = len(weights)
     weights = weights / np.sum(weights)
     u = (np.arange(N) + npr.rand()) / N
@@ -318,16 +309,24 @@ def resample2(particles, weights):
 def particle_filter(obs, old_particles, player_index):
     weights = []
     player = player_index ^ 1
-    for state in old_particles:
-        state_copy = deepcopy(state)
-        actions = list(generate_valid_actions(state_copy, player))
+    print('STARTING!!!!!!!!!!!!')
+    for i in range(len(old_particles)):
+        temp = BoardState(obs)
+        encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+        for j in range(6):
+            old_particles[i].state[j + 6 * player_index] = encoded_obs[j + 6 * player_index]
+        actions = list(generate_valid_actions(old_particles[i], player))
         chosen = random.randrange(len(actions))
         offset, pos = actions[chosen]
-        state_copy.update(offset + player * 6, pos)
-        weights.append(get_posterior(obs, state_copy, player))
-    print(weights)
-    particles = resample(old_particles, weights)
-    return particles
+        #print('offset ' + str(offset) + ' pos ' + str(pos))
+        old_particles[i].update(offset + player * 6, pos)
+        weights.append(get_posterior(obs, deepcopy(old_particles[i]), player))
+    #print(weights)
+    #old_particles = resample(old_particles, weights)
+    for i in range(len(old_particles)):
+        particle = old_particles[i]
+        print(str(particle.state) + '    ' + str(weights[i]))
+    #return old_particles
 
 def obs_probs(game_state, piece_ix):
     pos = game_state.stated[piece_ix, :]
@@ -356,7 +355,7 @@ def smc(observations, player_index=0):
             offset, pos = actions[chosen]
             state.update(offset + player * 6, pos)
             weights.append(get_posterior(obs, state, player))
-        particles = resample2(particles, weights)
+        particles = resample(particles, weights)
         player ^= 1
     return particles
 
@@ -394,8 +393,6 @@ class GameSimulator:
     
     def sample_observation(self, opposing_ix):
         new_state = sample_observation(self.game_state, opposing_ix)
-        print('new state for player ' + str(opposing_ix ^ 1) + ' is ')
-        print(new_state)
         return [self.game_state.decode_single_pos(d) for d in new_state]
 
     def winner(self):
@@ -418,7 +415,7 @@ class GameSimulator:
                 action, value = self.players[player_idx].policy(observation)
                 try:
                     is_valid_action = self.validate_action(action, player_idx)
-                except ValueError:
+                except:
                     is_valid_action = False
                 tries += 1
                 print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}, Validity: {is_valid_action}")
@@ -575,8 +572,6 @@ class GameSimulator:
 class Player:
     def __init__(self, policy_fnc):
         self.policy_fnc = policy_fnc
-        self.statelog = []
-        self.particles = np.array([BoardState() for _ in range(500)])
     def policy(self, decode_state):
         pass
     def process_feedback(self, observation, action, is_valid):
@@ -588,21 +583,21 @@ class MCTSPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-
+        self.particles = np.array([BoardState() for _ in range(500)])
+        self.invalid_actions = set()
+    
     def policy(self, observation):
-        self.statelog.append(deepcopy(observation))
-        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
-        lists = [[] for x in range(12)]
-        for particle in self.particles:
-            this_state = particle.state
-            print('hello!!')
-            print(this_state)
-            for i in range(12):
-                lists[i].append(this_state[i])
-        print('cya')
-        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
-        state = BoardState(mode_list)
-        return self.policy_fnc(state, self.player_idx)
+        obs = deepcopy(observation)
+        temp = BoardState(obs)
+        encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+        state = BoardState(encoded_obs)
+        return self.policy_fnc(state, self.player_idx, self.invalid_actions)
+    
+    def process_feedback(self, observation, action, is_valid):
+        if (not is_valid):
+            self.invalid_actions.add(action)
+        else:
+            self.invalid_actions = set()
     
 class AlphaBetaPlayer(Player):
     def __init__(self, gsp, player_idx, depth=3):
@@ -611,17 +606,21 @@ class AlphaBetaPlayer(Player):
         self.b = BoardState()
         self.player_idx = player_idx
         self.depth = depth
+        self.particles = np.array([BoardState() for _ in range(500)])
+        self.invalid_actions = set()
+
     def policy(self, observation):
-        self.statelog.append(deepcopy(observation))
-        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
-        lists = [[] for x in range(12)]
-        for particle in self.particles:
-            this_state = particle.state
-            for i in range(12):
-                lists[i].append(this_state[i])
-        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
-        state = BoardState(mode_list)
-        return self.policy_fnc(state, self.player_idx, self.depth)
+        obs = deepcopy(observation)
+        temp = BoardState(obs)
+        encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+        state = BoardState(encoded_obs)
+        return self.policy_fnc(state, self.player_idx, self.depth, self.invalid_actions)
+    
+    def process_feedback(self, observation, action, is_valid):
+        if (not is_valid):
+            self.invalid_actions.add(action)
+        else:
+            self.invalid_actions = set()
     
 class MinimaxPlayer(Player):
     def __init__(self, gsp, player_idx):
@@ -629,55 +628,22 @@ class MinimaxPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-    def policy(self, observation):
-        self.statelog.append(deepcopy(observation))
-        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
-        #self.particles = smc(self.statelog, self.player_idx)
-        lists = [[] for x in range(12)]
-        for particle in self.particles:
-            this_state = particle.state
-            for i in range(12):
-                lists[i].append(this_state[i])
-        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
-        state = BoardState(mode_list)
-        return self.policy_fnc(state, self.player_idx)
+        self.particles = np.array([BoardState() for _ in range(500)])
+        self.invalid_actions = set()
 
-    """
+    def policy(self, observation):
+        obs = deepcopy(observation)
+        temp = BoardState(obs)
+        encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+        state = BoardState(encoded_obs)
+        return self.policy_fnc(state, self.player_idx, self.invalid_actions)
+
     def process_feedback(self, observation, action, is_valid):
-        self.statelog.append(deepcopy(observation))
-        #self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
-        self.particles = smc(self.statelog)
-        if is_valid:
-            return
+        if (not is_valid):
+            self.invalid_actions.add(action)
         else:
-            ball_action = True if (action[0] == 5) else False
-            if ball_action:
-                print('ball action')
-                print(action)
-            else:
-                # There is an opponent piece here:
-                print('move action')
-                print(action)
-                opponent_location = action[1]
-                weights = []
-                in_count = 0
-                print('opp location ' + str(opponent_location))
-                print('this player ' + str(self.player_idx))
-                for particle in self.particles:
-                    particle_arr = particle.state
-                    print(particle_arr)
-                    subset_arr = particle_arr[6:] if (self.player_idx == 0) else particle[:6]
-                    if not (opponent_location in subset_arr):
-                        weights.append(0)
-                    else:
-                        weights.append(1)
-                        in_count = in_count + 1
-                print('in count ' + str(in_count))
-                print('weights length')
-                print(len(weights))
-                self.particles = resample(self.particles, weights)
-        return
-    """
+            self.invalid_actions = set()
+
     
 class RandPlayer(Player):
     def __init__(self, gsp, player_idx):
@@ -685,18 +651,12 @@ class RandPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-        self.statelog = []
+        self.particles = np.array([BoardState() for _ in range(500)])
     def policy(self, observation):
-        self.statelog.append(deepcopy(observation))
-        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
-        #self.particles = smc(self.statelog, self.player_idx)
-        lists = [[] for x in range(12)]
-        for particle in self.particles:
-            this_state = particle.state
-            for i in range(12):
-                lists[i].append(this_state[i])
-        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
-        state = BoardState(mode_list)
+        obs = deepcopy(observation)
+        temp = BoardState(obs)
+        encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+        state = BoardState(encoded_obs)
         return self.policy_fnc(state, self.player_idx)
     
 
@@ -712,14 +672,11 @@ class RandLoggerPlayer(Player):
         self.b = BoardState()
         self.player_idx = player_idx
         self.statelog = log
+
     def policy(self, observation):
-        self.statelog.append(deepcopy(observation))
-        self.particles = particle_filter(self.statelog[-1], self.particles, self.player_idx)
-        lists = [[] for x in range(12)]
-        for particle in self.particles:
-            this_state = particle.state
-            for i in range(12):
-                lists[i].append(this_state[i])
-        mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
-        state = BoardState(mode_list)
+        obs = deepcopy(observation)
+        temp = BoardState(obs)
+        encoded_obs = [temp.encode_single_pos(d) for d in temp.state]
+        self.statelog.append(encoded_obs)
+        state = BoardState(encoded_obs)
         return self.policy_fnc(state, self.player_idx, self.statelog)

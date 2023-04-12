@@ -11,12 +11,25 @@ def fake_observations():
     b1.decode_state = b1.make_state()
     players = [RandLoggerPlayer(GameStateProblem(b1, b1, 0), 0, log), RandLoggerPlayer(GameStateProblem(b1, b1, 0), 1, log)]
     sim = game.GameSimulator(players, n_steps=10)
-    sim.go()
+    sim.run()
     return log[1:] # The first state is known
 
 def test_infer_last_state_from_seq():
     obs = fake_observations()
+    for ob in obs:
+        print(ob)
+        print('---------------------')
     particles = smc(obs)
+    lists = [[] for x in range(12)]
+    for particle in particles:
+        this_state = particle.state
+        for i in range(12):
+            lists[i].append(this_state[i])
+    mode_list = [max(set(lists[i]), key=lists[i].count) for i in range(12)]
+    state = BoardState(mode_list)
+    #print(state)
+
+test_infer_last_state_from_seq()
 
 test_infer_last_state_from_seq()
 

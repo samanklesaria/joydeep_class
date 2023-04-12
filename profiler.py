@@ -27,12 +27,12 @@ def alpha_beta_game():
     sim.run()
 
 #mcts_game()
-#minimax_game()
+#winner = minimax_game()
 #alpha_beta_game()
 
 count = 0
-for i in range(1):
-    winner = minimax_game()
+for i in range(100):
+    winner = mcts_game()
     if (not winner):
         count = count + 1
 print(count)

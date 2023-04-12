@@ -78,6 +78,10 @@ no_min_action = ValuedAction(None, 1)
 no_max_action = ValuedAction(None, -1)
 
 class MinimaxPolicy(HueristicPolicy):
+    def __init__(self, player: PlayerIx, invalid_actions):
+        super().__init__(None)
+        self.player = player
+        self.invalid_actions = invalid_actions
 
     # The minimizing player is 1
     def min_action(self, state: BoardState, depth: int):
@@ -85,10 +89,13 @@ class MinimaxPolicy(HueristicPolicy):
             return ValuedAction(None, 1)
         if depth >= self.depth:
             return self.pick_leaf_action(state, 1)
+        action_set = self.actions(state, 1)
+        if (depth == 1):
+            action_set = [x for x in action_set if x not in self.invalid_actions]
         return min((ValuedAction(a,
             self.max_action(game.next_state(state, a, 1),
             depth+1)[1]) for a in 
-            self.actions(state, 1)), default=no_min_action, key=get_value)
+            action_set), default=no_min_action, key=get_value)
 
     # The maximizing player is 0
     def max_action(self, state: BoardState, depth: int):
@@ -96,16 +103,20 @@ class MinimaxPolicy(HueristicPolicy):
             return ValuedAction(None, 1)
         if depth >= self.depth:
             return self.pick_leaf_action(state, 0)
+        action_set = self.actions(state, 0)
+        if (depth == 1):
+            action_set = [x for x in action_set if x not in self.invalid_actions]
         return max((ValuedAction(a,
             self.min_action(game.next_state(state, a, 0),
             depth+1)[1]) for a in 
-            self.actions(state, 0)), default=no_max_action, key=get_value)
+            action_set), default=no_max_action, key=get_value)
 
     def policy(self, state):
         if self.player == 0:
             return self.max_action(state, 1)
         else:
             return self.min_action(state, 1)
+        
 
 def min_right(a, b, key):
     "Min, but prefers the right element under equality"
@@ -116,13 +127,21 @@ def max_right(a, b, key):
     return a if key(a) > key(b) else b
 
 class AlphaBeta(HueristicPolicy):
+    def __init__(self, player: PlayerIx, depth, invalid_actions):
+        super().__init__(None)
+        self.player = player
+        self.depth = depth
+        self.invalid_actions = invalid_actions
 
     def min_action(self, state: BoardState, depth: int, alpha: ValuedAction, beta: ValuedAction):
         if state.is_termination_state():
             return ValuedAction(None, 1)
         if depth >= self.depth:
             return self.pick_leaf_action(state, 1)
-        for a in self.actions(state, 1):
+        action_set = self.actions(state, 1)
+        if (depth == 1):
+            action_set = [x for x in action_set if x not in self.invalid_actions]
+        for a in action_set:
             beta = min_right(beta, ValuedAction(a,
                 self.max_action(game.next_state(state, a, 1),
                 depth+1, alpha, beta)[1]), get_value)
@@ -137,7 +156,10 @@ class AlphaBeta(HueristicPolicy):
             return ValuedAction(None, -1)
         if depth >= self.depth:
             return self.pick_leaf_action(state, 0)
-        for a in self.actions(state, 0):
+        action_set = self.actions(state, 0)
+        if (depth == 1):
+            action_set = [x for x in action_set if x not in self.invalid_actions]
+        for a in action_set:
             alpha = max_right(alpha, ValuedAction(a,
                 self.min_action(game.next_state(state, a, 0),
                 depth+1, alpha, beta)[1]), get_value)
@@ -177,21 +199,25 @@ class MCTS(HueristicPolicy):
             self.actions = list()
             self.player_index = player_index
 
-    def __init__(self, player: PlayerIx, limit : int =200, rollout_limit = 75):
+    def __init__(self, player: PlayerIx, invalid_actions, limit : int =200, rollout_limit = 75):
         super().__init__(None)
         self.player = player
         self.limit = limit
         self.root = None
         self.exploration = np.sqrt(2)
         self.rollout_limit = rollout_limit
+        self.invalid_actions = invalid_actions
 
     def walk_dag(self, state: BoardState, player: PlayerIx):
         current_node = self.root
         chosen_action = None
-
+        at_root = True
         # get to leaf (selection)
         while current_node.actions:
             actions = self.actions(current_node.board_state, current_node.player_index)
+
+            if (at_root):
+                actions = [x for x in actions if x not in self.invalid_actions]
 
             best_score = -10000
             best_action = None
@@ -219,6 +245,7 @@ class MCTS(HueristicPolicy):
                 break
 
             current_node = best_node
+            at_root = False
 
         if chosen_action is None:
             actions = self.actions(current_node.board_state, current_node.player_index)
@@ -275,7 +302,7 @@ class RandLogger(Policy):
         self.statelog = statelog
 
     def policy(self, state):
-        self.statelog.append(game.sample_observation(state, self.player ^ 1))
+        #self.statelog.append(game.sample_observation(state, self.player ^ 1))
         actions = self.actions(state, self.player)
         chosen = random.randrange(len(actions))
         return (actions[chosen], 0)
@@ -423,16 +450,16 @@ class GameStateProblem(Problem):
                 distance = distance + 1
         return distance
     
-    def alpha_beta_policy(self, state, player, depth):
-        alpha_beta = AlphaBeta(player, depth)
+    def alpha_beta_policy(self, state, player, depth, invalid_actions=set()):
+        alpha_beta = AlphaBeta(player, depth, invalid_actions)
         return alpha_beta.policy(state)
     
-    def minimax_policy(self, state, player):
-        minimax = MinimaxPolicy(player)
+    def minimax_policy(self, state, player, invalid_actions=set()):
+        minimax = MinimaxPolicy(player, invalid_actions)
         return minimax.policy(state)
     
-    def mcts_policy(self, state, player):
-        mcts = MCTS(player)
+    def mcts_policy(self, state, player, invalid_actions=set()):
+        mcts = MCTS(player, invalid_actions)
         return mcts.policy(state)
 
     def random_policy(self, state, player):
