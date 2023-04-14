@@ -398,6 +398,43 @@ class GameSimulator:
     def winner(self):
         return self.current_round % 2
 
+    def run_with_ground_truth(self):
+        """
+        Runs a game simulation
+        """
+        observations = []
+        states = []
+        actions = []
+        while not (self.game_state.is_termination_state() or self.current_round > self.n_steps):
+            ## Determine the round number, and the player who needs to move
+            self.current_round += 1
+            player_idx = self.current_round % 2
+            ## For the player who needs to move, provide them with the current game state
+            ## and then ask them to choose an action according to their policy
+            observation = self.sample_observation((player_idx + 1) % 2)
+            is_valid_action = False
+            tries = 0
+            while (not is_valid_action) and (tries < self.max_tries_per_round):
+                action, value = self.players[player_idx].policy(observation)
+                try:
+                    is_valid_action = self.validate_action(action, player_idx)
+                except:
+                    is_valid_action = False
+                tries += 1
+                print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}, Validity: {is_valid_action}")
+                self.players[player_idx].process_feedback(observation, action, is_valid_action)
+            if not is_valid_action:
+                ## If an invalid action is provided, then the other player will be declared the winner
+                return (observations, states, actions)
+            else:
+                actions.append(action)
+                states.append(self.game_state)
+                observations.append(encode(np.array(observation)))
+            ## Updates the game state
+            self.update(action, player_idx)
+        return (observations, states, actions)
+
+
     def run(self):
         """
         Runs a game simulation

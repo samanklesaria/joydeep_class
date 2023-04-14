@@ -1,5 +1,7 @@
 from copy import deepcopy
 from typing import Iterable, Tuple
+
+import pytest
 import game
 import numpy as np
 from game import BoardState, EncPos, MCTSPlayer, AlphaBetaPlayer, MinimaxPlayer, RandPlayer, RandLoggerPlayer, smc, obs_probs, Rules, Action
@@ -7,16 +9,14 @@ from search import GameStateProblem
 from collections import defaultdict
 import random
 
-def fake_observations():
-    log = []
+def fake_observations(encoded_state_tuple, n_steps):
     b1 = BoardState()
-    encoded_state_tuple = (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52)
     b1.state = np.array(encoded_state_tuple)
     b1.decode_state = b1.make_state()
-    players = [RandLoggerPlayer(GameStateProblem(b1, b1, 0), 0, log), RandLoggerPlayer(GameStateProblem(b1, b1, 0), 1, log)]
-    sim = game.GameSimulator(players, n_steps=20)
-    sim.run()
-    return log # The first state is known
+    players = [RandPlayer(GameStateProblem(b1, b1, 0), 0), RandPlayer(GameStateProblem(b1, b1, 0), 1)]
+    sim = game.GameSimulator(players, n_steps=n_steps)
+    observations, states, actions = sim.run_with_ground_truth()
+    return observations, states, actions # The first state is known
 
 def get_single_piece_moves(position) -> Iterable[EncPos]:
     decoded_pos = (position % 7, position // 7)
@@ -121,17 +121,6 @@ def get_full_beliefs(observations):
         full_beliefs.append(full_belief)
     
     return full_beliefs
-            
-
-def test_infer_last_state_from_seq():
-    obs = fake_observations()
-    print(obs[-1])
-    state_sequence = generate_state_sequence(obs)
-    last_state = state_sequence[-1]
-    print(last_state.state)
-    #print(state)
-
-test_infer_last_state_from_seq()
 
 def get_manhattan(pos1, pos2):
     return (abs(pos2[0] - pos1[0]) + abs(pos2[1] - pos1[1]))
@@ -215,21 +204,61 @@ def get_actions_from_states(state_sequence):
         actions.append(get_most_likely_action(old_state, new_state))
     return actions
 
+def score_actions(predictions, actual):
+    total = len(predictions)
+    count = 0
+    for i in range(len(predictions)):
+        prediction = predictions[i]
+        gt = actual[i]
+        if (prediction[0] == gt[0] and prediction[1] == gt[1]):
+            count += 1
+    return count / total
+
 def test_infer_actions_from_seq():
-    obs = fake_observations()
-    print(obs[-1])
-    belief_sequence = get_full_beliefs(obs)
-    state_sequence = generate_state_sequence(obs)
-    #actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
-    actions = get_actions_from_states(state_sequence)
-    print(actions)
+        accuracy_sum = 0
+        for i in range(20):
+            encoded_state_tuple = (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52)
+            obs, states, gt_actions = fake_observations(encoded_state_tuple, 200)
+            belief_sequence = get_full_beliefs(obs)
+            state_sequence = generate_state_sequence(obs)
+            #actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
+            actions = get_actions_from_states(state_sequence)
+            score = score_actions(actions, gt_actions)
+            print(score)
+            accuracy_sum += score
+        accuracy_sum /= 20
+        print('Average Score is ' + str(accuracy_sum))
 
 test_infer_actions_from_seq()
+
+def test_infer_last_state_from_seq():
+        obs = fake_observations()
+        print(obs[-1])
+        state_sequence = generate_state_sequence(obs)
+        last_state = state_sequence[-1]
+        print(last_state.state)
+
+class TestAS4:
+
+    @pytest.mark.parametrize("encoded_state_tuple,exp_state,n_steps", [
+    (MinimaxPlayer, AlphaBetaPlayer,
+    (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52),
+    "WHITE", "No issues")
+    ])
+    def test_infer_actions_from_seq(self, encoded_state_tuple, exp_state, n_steps):
+        obs = fake_observations()
+        print(obs[-1])
+        belief_sequence = get_full_beliefs(obs)
+        state_sequence = generate_state_sequence(obs)
+        #actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
+        actions = get_actions_from_states(state_sequence)
+        print(actions)
+
+    
+
 
 
 def test_observation():
     bs = game.GameSimulator([])
     bs.sample_observation(0)
     bs.sample_observation(1)
-
-test_observation()
