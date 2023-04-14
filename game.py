@@ -26,7 +26,7 @@ NdPos = np.ndarray
 
 Pos = Union[TupPos, NdPos]
 
-# Representation of the state as a list of Pos
+# Representation of the state as a list of  Pos
 StupidState = List[Pos]
 
 # Encoded position
@@ -402,7 +402,7 @@ class GameSimulator:
         """
         Runs a game simulation
         """
-        while not self.game_state.is_termination_state():
+        while not (self.game_state.is_termination_state() or self.current_round > self.n_steps):
             ## Determine the round number, and the player who needs to move
             self.current_round += 1
             player_idx = self.current_round % 2
@@ -583,7 +583,6 @@ class MCTSPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-        self.particles = np.array([BoardState() for _ in range(500)])
         self.invalid_actions = set()
     
     def policy(self, observation):
@@ -606,7 +605,6 @@ class AlphaBetaPlayer(Player):
         self.b = BoardState()
         self.player_idx = player_idx
         self.depth = depth
-        self.particles = np.array([BoardState() for _ in range(500)])
         self.invalid_actions = set()
 
     def policy(self, observation):
@@ -628,7 +626,6 @@ class MinimaxPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-        self.particles = np.array([BoardState() for _ in range(500)])
         self.invalid_actions = set()
 
     def policy(self, observation):
@@ -651,7 +648,6 @@ class RandPlayer(Player):
         self.gsp = gsp
         self.b = BoardState()
         self.player_idx = player_idx
-        self.particles = np.array([BoardState() for _ in range(500)])
     def policy(self, observation):
         obs = deepcopy(observation)
         temp = BoardState(obs)
