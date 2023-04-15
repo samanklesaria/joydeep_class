@@ -215,50 +215,81 @@ def score_actions(predictions, actual):
     return count / total
 
 def test_infer_actions_from_seq():
+    print('Average Score is ', infer_actions_from_seq(10, 100))
+
+def infer_actions_from_seq(N, k):
         accuracy_sum = 0
-        for i in range(20):
-            encoded_state_tuple = (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52)
-            obs, states, gt_actions = fake_observations(encoded_state_tuple, 200)
-            belief_sequence = get_full_beliefs(obs)
+        for i in range(N):
+            encoded_state_tuple =(1,2,3,4,5,3,50,51,52,53,54,52)
+            # (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52)
+            obs, states, gt_actions = fake_observations(encoded_state_tuple, k)
+            # belief_sequence = get_full_beliefs(obs)
             state_sequence = generate_state_sequence(obs)
             #actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
             actions = get_actions_from_states(state_sequence)
             score = score_actions(actions, gt_actions)
-            print(score)
+            # print(score)
             accuracy_sum += score
-        accuracy_sum /= 20
-        print('Average Score is ' + str(accuracy_sum))
+        return accuracy_sum / N
 
-test_infer_actions_from_seq()
+
+def infer_actions_from_seq2(N, k):
+        accuracy_sum = 0
+        for i in range(N):
+            encoded_state_tuple =(1,2,3,4,5,3,50,51,52,53,54,52)
+            # (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52)
+            obs, states, gt_actions = fake_observations(encoded_state_tuple, k)
+            belief_sequence = get_full_beliefs(obs)
+            state_sequence = generate_state_sequence(obs)
+            actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
+            # actions = get_actions_from_states(state_sequence)
+            score = score_actions(actions_2, gt_actions)
+            # print(score)
+            accuracy_sum += score
+        return accuracy_sum / N
 
 def test_infer_last_state_from_seq():
-        obs = fake_observations()
-        print(obs[-1])
-        state_sequence = generate_state_sequence(obs)
-        last_state = state_sequence[-1]
-        print(last_state.state)
+    return infer_last_state_from_seq(10, 100)
 
-class TestAS4:
+def infer_last_state_from_seq(N, k):
+        encoded_state_tuple =(1,2,3,4,5,3,50,51,52,53,54,52)
+        accuracy_sum = 0
+        for i in range(N):
+            obs, states, gt_actions = fake_observations(encoded_state_tuple, k)
+            state_sequence = generate_state_sequence(obs)
+            last_state = state_sequence[-1]
+            vals = (obs[-1] == last_state.state)
+            accuracy_sum += (vals.sum() / len(vals))
+        return accuracy_sum / N
 
-    @pytest.mark.parametrize("encoded_state_tuple,exp_state,n_steps", [
-    (MinimaxPlayer, AlphaBetaPlayer,
-    (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52),
-    "WHITE", "No issues")
-    ])
-    def test_infer_actions_from_seq(self, encoded_state_tuple, exp_state, n_steps):
-        obs = fake_observations()
-        print(obs[-1])
-        belief_sequence = get_full_beliefs(obs)
-        state_sequence = generate_state_sequence(obs)
-        #actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
-        actions = get_actions_from_states(state_sequence)
-        print(actions)
+
+def get_last_state_plot():
+    return [infer_last_state_from_seq(5, i) for i in range(1, 200, 20)]
+
+def get_action_plot():
+    return [infer_actions_from_seq(5, i) for i in range(1, 200, 20)]
+
+def get_action_plot2():
+    return [infer_actions_from_seq2(5, i) for i in range(1, 200, 20)]
+
+# class TestAS4:
+
+#     @pytest.mark.parametrize("encoded_state_tuple,exp_state,n_steps", [
+#     (MinimaxPlayer, AlphaBetaPlayer,
+#     (49, 37, 46, 41, 55, 41, 50, 51, 52, 53, 54, 52),
+#     "WHITE", "No issues")
+#     ])
+#     def test_infer_actions_from_seq(self, encoded_state_tuple, exp_state, n_steps):
+#         obs = fake_observations()
+#         print(obs[-1])
+#         belief_sequence = get_full_beliefs(obs)
+#         state_sequence = generate_state_sequence(obs)
+#         #actions_2 = get_actions_with_beliefs(state_sequence, belief_sequence)
+#         actions = get_actions_from_states(state_sequence)
+#         print(actions)
 
     
-
-
-
-def test_observation():
-    bs = game.GameSimulator([])
-    bs.sample_observation(0)
-    bs.sample_observation(1)
+# def test_observation():
+#     bs = game.GameSimulator([])
+#     bs.sample_observation(0)
+#     bs.sample_observation(1)

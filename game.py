@@ -421,7 +421,8 @@ class GameSimulator:
                 except:
                     is_valid_action = False
                 tries += 1
-                print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}, Validity: {is_valid_action}")
+                if self.log:
+                    print(f"Round: {self.current_round} Player: {player_idx} State: {tuple(self.game_state.state)} Action: {action} Value: {value}, Validity: {is_valid_action}")
                 self.players[player_idx].process_feedback(observation, action, is_valid_action)
             if not is_valid_action:
                 ## If an invalid action is provided, then the other player will be declared the winner
